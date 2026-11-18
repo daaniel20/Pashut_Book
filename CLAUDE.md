@@ -26,21 +26,23 @@ The parts of the product decided so far:
 
 1. **Low cost first.** Prefer free tiers and things the owner already has (the Mac Mini). Don't add paid services unless there's a real need, and say what they cost before suggesting them.
 2. **Simple for the customer.** Every customer-facing message should be short and clear, with buttons wherever possible. Assume the customer is a grandparent.
-3. **Four languages.** All customer-facing text must support Hebrew, English, Russian, and Arabic. Hebrew and Arabic are right-to-left (RTL), including any text printed in the album.
+3. **Hebrew first, more languages later.** Launch in Hebrew only. Russian, Arabic and English come later, each with its own marketing campaign. Write code so new languages are easy to add later (keep customer-facing text separate from the code, not hard-coded). Hebrew and Arabic are right-to-left (RTL), including any text printed in the album.
 4. **Official WhatsApp only.** Use the official WhatsApp Business Platform (Meta Cloud API). Never use unofficial WhatsApp libraries (such as whatsapp-web.js or Baileys), because they risk getting the number banned.
 5. **Protect customer photos.** Photos are private, often of children. Never make them public, never log them, and delete them automatically after delivery. Never send the print-quality PDF to the customer.
 6. **Keep it replaceable.** Keep the album builder separate from the printing step so the printer (a local printer or Lupa) can be changed. Keep the server portable so it can move from the Mac Mini to the cloud with minimal work.
-7. **Build in small stages.** Ship the simplest working version first. Manual steps are fine early on (see the roadmap in README.md).
+7. **Build in small stages.** Ship the simplest working version first. Manual steps are fine early on.
+8. **Sales must not wait for the bot.** The project runs two tracks in parallel: a **build track** (the bot) and a **sales track** (real paying customers, with albums made by hand if the bot isn't ready). Stage 4 starts only after the go/stop decision passes. See README.md and ROADMAP.md.
+9. **Our advantage is marketing, service and speed, not the tool.** Don't over-polish technology the customer doesn't see.
 
 ## Planned tech stack
 
 | Part | Choice |
 |---|---|
-| Messaging | WhatsApp Business Platform (Meta Cloud API). The free Meta test number during development. |
+| Messaging | WhatsApp Business Platform (Meta Cloud API). The free Meta test number during development (it can message only up to 5 pre-registered numbers), then a real business number. |
 | Server | Python, running on the owner's Mac Mini at first |
 | Public access | Cloudflare Tunnel (for WhatsApp webhooks) |
 | Database and file storage | Supabase (free plan) |
-| AI | Claude (Anthropic API): conversation in 4 languages, help choosing photos |
+| AI | Claude (Anthropic API): understanding customers' free-text messages (Hebrew first), help choosing photos |
 | Album builder | Python: photo quality checks, HTML page templates, then a print PDF and watermarked JPEG previews |
 | Payment | Bit by hand at first, later Grow / PayPlus / Cardcom |
 
@@ -53,4 +55,6 @@ This plan is not final. If you suggest a change, explain why in simple words.
 
 ## Current status
 
-Stage 0 (preparation). There's no code yet. Update this section as the project moves forward.
+Planning. The build track (Stage 0) and the sales track (weeks 1–2) start together. The fixed date for the first paying strangers is not set yet. There's no code yet. Business registration (עוסק פטור) is postponed, and the owner will handle it later. Ad strategy will be planned from scratch in a separate session.
+
+Update this section as the project moves forward.
