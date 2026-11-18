@@ -51,7 +51,10 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 - **Referrals:** every album includes a QR code and a referral offer on the back cover.
 - **Speed promise to test:** a preview within 24 hours of receiving the photos.
 - **Seasonal calendar:** holidays, the end of the school year, after summer trips.
-- **Target:** the cost to win one paying customer is **at most half** of our profit per album.
+- **Target:** the cost to win one paying customer from ads is **at most half** of our profit per album (before ads). This rule is the single source of truth for ad spending.
+  - **Profit per album (before ads) = price − printing − payment fees − packaging and other small costs.** Shipping is left out: the customer pays it, and it costs us the same amount.
+  - Current estimate: ₪200 (price, not final) − ₪70 (printing, a guess until the printer quote) − ₪0 (payment fees, Bit by hand) − ₪11.5 (packaging ₪5, AI and WhatsApp ₪3, reprint margin ₪3.5) = **about ₪119**. Half of that = **about ₪60**.
+  - Recalculate whenever the price, printing cost or payment method changes. The ROI calculator (Google Sheet) does this automatically.
 
 ---
 
@@ -160,7 +163,8 @@ Two tracks run **in parallel**. Building the bot is also a learning goal, but it
 The criteria are set **now**, not after the test. Continue only if **all** of them pass:
 
 - [ ] At least **5 strangers** paid
-- [ ] Cost per paying customer from ads: **₪75 or less**
+- [ ] Cost per paying customer from ads: **at most half of profit per album** — about ₪60 at current estimates. Recalculate after the printer quote and final price are set.
+  (Profit per album = price − printing − payment fees − packaging and other small costs. See the rule under "Marketing and sales" in README.md.)
 - [ ] Owner time per album: **30 minutes or less**
 - [ ] At least **1 referral or repeat order**
 
