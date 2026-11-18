@@ -54,7 +54,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 - **Target:** the cost to win one paying customer from ads is **at most half** of our profit per album (before ads). This rule is the single source of truth for ad spending.
   - **Profit per album (before ads) = price − printing − payment fees − packaging and other small costs.** Shipping is left out: the customer pays it, and it costs us the same amount.
   - Current estimate: ₪150 (price, not final) − ₪50 (printing, a guess until the printer quote) − ₪3.6 (payment fees, 2% of ₪180 incl. shipping) − ₪13 (packaging ₪5, AI and WhatsApp ₪3, reprint margin ₪5) = **about ₪83**. Half of that = **about ₪42**.
-  - Recalculate whenever the price, printing cost or payment method changes. The ROI calculator (Google Sheet) does this automatically.
+  - Recalculate whenever the price, printing cost or payment method changes. The [ROI calculator (Google Sheet)](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit) does this automatically.
 
 ---
 
@@ -119,7 +119,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 ## Open questions
 
 - Exact photo limit (50 or 100)
-- Exact price, and an ROI calculation to find the right business size
+- Exact price. The [ROI calculator](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit) is built; the final price waits for the printer quote and the first 10 albums.
 - How many free changes per album
 - Which local printer to use, and the album size and number of pages
 - Which payment company to use (later)

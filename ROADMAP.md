@@ -64,7 +64,7 @@ gantt
 
 | # | Task | Who | When | Done when… |
 |---|---|---|---|---|
-| S.1 | Decide the **price, photo limit** (50 or 100), and **free changes** per album. An ROI calculator helps. | 🙋 + 🤝 | Week 1 | Decisions written in README.md |
+| S.1 | Decide the **price, photo limit** (50 or 100), and **free changes** per album. Use the [ROI calculator (Google Sheet)](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit). | 🙋 + 🤝 | Week 1 | Decisions written in README.md |
 | S.2 | **Printer quote:** call or email 3 local printers about price, sizes, paper, PDF specifications, delivery time, and shipping | 🙋 | Weeks 1–2 | One printer chosen, with their file specifications |
 | S.3 | **2 templates ready** (Classic / Colorful) in the printer's page size. Used by hand now; the bot will copy the same look later. | 🙋 + 🤝 | Weeks 1–2 | Sample pages look good |
 | S.4 | **Test album** printed from **WhatsApp HD photos**, including some full-page photos | 🙋 | Weeks 1–2 | You know whether HD photos print well enough at full-page size |
