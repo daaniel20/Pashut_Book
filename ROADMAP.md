@@ -125,7 +125,7 @@ A payment company, automatic changes, order tracking, more languages (each with 
 The criteria are set **now**, not after the test. Continue only if **all** of them pass:
 
 - [ ] At least **5 strangers** paid
-- [ ] Cost per paying customer from ads: **at most half of profit per album** — about ₪60 at current estimates. Recalculate after the printer quote and final price are set.
+- [ ] Cost per paying customer from ads: **at most half of profit per album** — about ₪42 at current estimates. Recalculate after the printer quote and final price are set.
   (Profit per album = price − printing − payment fees − packaging and other small costs. See the rule under "Marketing and sales" in README.md.)
 - [ ] Owner time per album: **30 minutes or less**
 - [ ] At least **1 referral or repeat order**
