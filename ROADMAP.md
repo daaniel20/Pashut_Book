@@ -35,7 +35,7 @@ gantt
     5 strangers (paid ad test)        :s6, 2026-12-09, 21d
 
     section 🛠️ Build: Stage 0
-    Meta account + test number        :b0a, 2026-11-18, 3d
+    Meta account + test number        :done, b0a, 2026-11-18, 3d
     Mac Mini + Cloudflare Tunnel      :b0b, 2026-11-23, 3d
     Supabase project                  :b0c, after b0b, 1d
     Real business number              :b0d, 2026-11-30, 5d
