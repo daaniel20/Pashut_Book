@@ -4,7 +4,7 @@
 
 The customer sends their photos to a WhatsApp number, picks a design, approves a preview, and pays. A few days later a printed photo book arrives at their door. They don't need an app, a computer, or design skills.
 
-> **Status:** Planning and Stage 0 (preparation). No code yet.
+> **Status:** Planning. Build track and sales track start together. First paying strangers by **[DATE]**.
 
 ---
 
@@ -20,14 +20,14 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 
 - Young parents and grandparents in Israel, usually 30 and older
 - People who aren't tech-savvy and want the result without the work
-- The bot speaks **Hebrew, English, Russian, and Arabic**, and answers in the customer's language
+- Languages: **Hebrew at launch**; Russian, Arabic and English later, each together with a marketing campaign for that audience
 
 ---
 
 ## How it works (customer journey)
 
 1. The customer sends "Hi" to the business WhatsApp number.
-2. The bot replies in the customer's language and briefly explains the process.
+2. The bot replies in Hebrew (other languages later) and briefly explains the process.
 3. The customer picks one of **2 designs** by tapping a button (for example "Classic" or "Colorful").
 4. The bot explains how to send photos in **HD** quality.
 5. The customer sends **up to 50–100 photos** (the exact limit is still to be decided).
@@ -38,6 +38,20 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 10. The customer pays with a **Bit or credit card** link and sends a shipping address.
 11. **The owner checks and approves** the album.
 12. The print-quality PDF goes to the printer, and the album is shipped.
+
+---
+
+## Marketing and sales
+
+- **Main principle:** our advantage is marketing, service and speed, not the tool. The tool can be copied.
+- **Channels to test:**
+  - Family and friends WhatsApp groups
+  - A paid ad test, run by a friend
+  - A "gift for grandparents" offer
+- **Referrals:** every album includes a QR code and a referral offer on the back cover.
+- **Speed promise to test:** a preview within 24 hours of receiving the photos.
+- **Seasonal calendar:** holidays, the end of the school year, after summer trips.
+- **Target:** the cost to win one paying customer is **at most half** of our profit per album.
 
 ---
 
@@ -107,20 +121,50 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 - Which local printer to use, and the album size and number of pages
 - Which payment company to use (later)
 - Name and branding
+- Whether WhatsApp HD photos print well enough at full-page size
+- Whether customers can send a shared Google Photos / iCloud album link instead of choosing 50–100 photos themselves
 
 ---
 
 ## Roadmap
 
+Two tracks run **in parallel**. Building the bot is also a learning goal, but it must not delay finding out whether people will pay.
+
+### Build track
+
 | Stage | What it includes |
 |---|---|
-| **0. Preparation** | Meta developer account and free test number, register the business (עוסק פטור), find a local printer, print one test album |
-| **1. Basic bot** | The bot talks in 4 languages, offers design buttons, collects and stores photos |
+| **0. Preparation** | Meta developer account and the free test number. The test number can only message **up to 5 pre-registered phone numbers** (confirmed in Meta's documentation), so a **real business number** on the WhatsApp Business Platform is needed for customers. Find a local printer. Print 1 test album from WhatsApp HD photos. |
+| **1. Basic bot** | **Hebrew only** at first. Design buttons. Collect and store photos. |
 | **2. Automatic album** | Quality check, layout, print PDF, watermarked previews |
-| **3. First customers** | Friends and family. Payment, owner approval on WhatsApp, limited changes. |
-| **4. Polish and grow** | Automatic changes, order tracking, an owner dashboard, a payment company, maybe Lupa |
+| **3. First customers through the bot** | Payment, owner approval on WhatsApp, limited changes |
+| **4. Polish and grow** | **Only after the go/stop decision passes** (see below) |
 
-**Goals:** the first friends-and-family customer next month, about 20 albums a month at the start, and about 100 a month after one year.
+### Sales track (runs in parallel from week 1)
+
+**Fixed date: first paying strangers by [DATE].** If the bot isn't ready by then, those albums are made by hand.
+
+| When | What |
+|---|---|
+| **Weeks 1–2** | 2 templates ready, a printer quote, a test album printed |
+| **Weeks 3–6** | **10 albums:** 5 for friends and family at **full price**, and 5 for strangers from a small paid ad test (about ₪1,500) |
+
+**Track for every album:**
+- Owner minutes spent
+- Number of revision requests
+- Price paid
+- How the customer found us
+
+### Go / stop decision (after the 10 albums, before Stage 4)
+
+The criteria are set **now**, not after the test. Continue only if **all** of them pass:
+
+- [ ] At least **5 strangers** paid
+- [ ] Cost per paying customer from ads: **₪75 or less**
+- [ ] Owner time per album: **30 minutes or less**
+- [ ] At least **1 referral or repeat order**
+
+If not: change **one** thing (price, offer, or audience) and rerun the test once, or stop the business side. The bot stays as a learning project.
 
 ---
 
