@@ -137,7 +137,7 @@ Two tracks run **in parallel**. Building the bot is also a learning goal, but it
 
 | Stage | What it includes |
 |---|---|
-| **0. Preparation** | Meta developer account and the free test number. The test number can only message **up to 5 pre-registered phone numbers** (confirmed in Meta's documentation), so a **real business number** on the WhatsApp Business Platform is needed for customers. Find a local printer. Print 1 test album from WhatsApp HD photos. |
+| **0. Preparation** | Meta developer account and the free test number. The test number can only message **up to 5 pre-registered phone numbers** (confirmed in Meta's documentation), so a **real business number** on the WhatsApp Business Platform is needed for customers. Meta also blocks sending from a new business until it passes **Business Verification**, which needs an official business document (for example עוסק פטור). Find a local printer. Print 1 test album from WhatsApp HD photos. |
 | **1. Basic bot** | **Hebrew only** at first. Design buttons. Collect and store photos. |
 | **2. Automatic album** | Quality check, layout, print PDF, watermarked previews |
 | **3. First customers through the bot** | Payment, owner approval on WhatsApp, limited changes |

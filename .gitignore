@@ -1,6 +1,7 @@
 # Secrets (API keys, tokens) - never commit
 .env
 .env.*
+!.env.example
 
 # Customer photos and generated albums - never commit
 photos/

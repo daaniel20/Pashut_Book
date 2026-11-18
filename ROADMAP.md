@@ -35,7 +35,7 @@ gantt
     5 strangers (paid ad test)        :s6, 2026-12-09, 21d
 
     section 🛠️ Build: Stage 0
-    Meta account + test number        :b0a, 2026-11-18, 3d
+    Meta account + test number        :done, b0a, 2026-11-18, 3d
     Mac Mini + Cloudflare Tunnel      :b0b, 2026-11-23, 3d
     Supabase project                  :b0c, after b0b, 1d
     Real business number              :b0d, 2026-11-30, 5d
@@ -81,10 +81,10 @@ gantt
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 0.1 | Meta for Developers account, a Business app with WhatsApp, and the **free test number** (it can message only **up to 5 pre-registered numbers**) | 🙋 + 🤝 | You send "Hi" from your phone and see it in Meta's dashboard |
+| 0.1 ✅ | Meta for Developers account, a Business app with WhatsApp, and the **free test number** (it can message only **up to 5 pre-registered numbers**). Guide: [docs/setup/0.1-meta-whatsapp.md](docs/setup/0.1-meta-whatsapp.md) | 🙋 + 🤝 | Your phone gets the test message from the test number. ✅ Done with a workaround: the **testing** app lives under the owner's older portfolio, which Meta doesn't restrict. The new Pashut Book portfolio can't send until it's verified (see 0.4) |
 | 0.2 | **Mac Mini setup:** Python, never sleep, auto-restart after a power cut, Cloudflare Tunnel | 🤝 | A test page on the Mac opens from your phone on mobile data |
 | 0.3 | Free **Supabase** project | 🤝 | The project exists and its keys are saved safely in `.env` |
-| 0.4 | **Real business number** on the WhatsApp Business Platform (for example a virtual 07x number) | 🙋 + 🤝 | Any phone, not just the 5 test numbers, can message the bot |
+| 0.4 | **Real business number** on the WhatsApp Business Platform (for example a virtual 07x number) | 🙋 + 🤝 | **Pashut Book portfolio passes Meta Business Verification** (needs an official business document, e.g. עוסק פטור, ideally with the name "Pashut Book"), and any phone, not just the 5 test numbers, can message the bot |
 
 The printer and the test album are in the sales track (S.2, S.4).
 
@@ -141,6 +141,7 @@ If not: change **one** thing (price, offer, or audience) and rerun the test once
 
 ## Key dependencies (what must come first)
 
+- **עוסק פטור registration** → Meta Business Verification of Pashut Book → 0.4 business number
 - **0.1 Meta account** → all of Stage 1
 - **S.2 Printer chosen** → S.3 templates (page size) → 2.2 layout → 2.3 print PDF
 - **S.4 Test album** → whether full-page photos are allowed
