@@ -83,7 +83,7 @@ gantt
 |---|---|---|---|
 | 0.1 ✅ | Meta for Developers account, a Business app with WhatsApp, and the **free test number** (it can message only **up to 5 pre-registered numbers**). Guide: [docs/setup/0.1-meta-whatsapp.md](docs/setup/0.1-meta-whatsapp.md) | 🙋 + 🤝 | Your phone gets the test message from the test number. ✅ Done with a workaround: the **testing** app lives under the owner's older portfolio, which Meta doesn't restrict. The new Pashut Book portfolio can't send until it's verified (see 0.4) |
 | 0.2 ✅ | **Mac Mini setup:** Python, never sleep, auto-restart after a power cut, Cloudflare Tunnel. Guide: [docs/setup/0.2-mac-mini-tunnel.md](docs/setup/0.2-mac-mini-tunnel.md) | 🤝 | A test page on the Mac opens from your phone on mobile data. ✅ Done: https://hello.pashutbook.com works on 5G and after a restart |
-| 0.3 | Free **Supabase** project | 🤝 | The project exists and its keys are saved safely in `.env` |
+| 0.3 ✅ | Free **Supabase** project. Guide: [docs/setup/0.3-supabase.md](docs/setup/0.3-supabase.md) | 🤝 | The project exists and its keys are saved safely in `.env`. ✅ Done: project `pashut-book` (Frankfurt), secret key in `.env` on the Mac, connection test answered 200 (Nov 21, 2026) |
 | 0.4 | **Real business number** on the WhatsApp Business Platform (for example a virtual 07x number) | 🙋 + 🤝 | **Pashut Book portfolio passes Meta Business Verification** (needs an official business document, e.g. עוסק פטור, ideally with the name "Pashut Book"), and any phone, not just the 5 test numbers, can message the bot |
 
 The printer and the test album are in the sales track (S.2, S.4).
