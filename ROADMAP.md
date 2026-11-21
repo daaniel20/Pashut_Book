@@ -37,7 +37,7 @@ gantt
     section 🛠️ Build: Stage 0
     Meta account + test number        :done, b0a, 2026-11-18, 3d
     Mac Mini + Cloudflare Tunnel      :done, b0b, 2026-11-18, 3d
-    Supabase project                  :b0c, after b0b, 1d
+    Supabase project                  :done, b0c, after b0b, 1d
     Real business number              :b0d, 2026-11-30, 5d
 
     section 🛠️ Build: Stage 1
@@ -92,7 +92,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 1.1 | **First bot:** the Mac receives WhatsApp messages and answers "Hello!" | 🤝 | You write to the bot and get an automatic reply |
+| 1.1 | **First bot:** the Mac receives WhatsApp messages and answers "Hello!" Guide: [docs/setup/1.1-first-bot.md](docs/setup/1.1-first-bot.md) | 🤝 | You write to the bot and get an automatic reply |
 | 1.2 | **Hebrew conversation + design buttons:** welcome → choose design → HD instructions → send photos → cover title | 🤝 | You can walk through the whole conversation |
 | 1.3 | **Collect and store photos:** save each one in Supabase, count them, enforce the limit | 🤝 | 60 photos sent → "Got 60 photos 👍", all saved |
 
