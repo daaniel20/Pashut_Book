@@ -2,7 +2,7 @@
 
 It proves that the Mac Mini can be reached from the internet through
 Cloudflare Tunnel. It uses only Python's built-in tools (nothing to install).
-The real bot (task 1.1) will replace it.
+Since task 1.1 it is replaced by server/bot.py, which shows the same page.
 
 Run it by hand:   python3 server/hello.py
 Then open:        http://localhost:8000
