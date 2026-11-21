@@ -14,7 +14,7 @@ import urllib.request
 
 from settings import ENV_FILE, read_env
 
-DEFAULT_GRAPH_VERSION = "v23.0"
+DEFAULT_GRAPH_VERSION = "v27.0"
 
 
 def call(env, method, path):

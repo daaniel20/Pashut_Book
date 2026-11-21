@@ -27,7 +27,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from settings import ENV_FILE, load_texts, read_env
+from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
 
 # 127.0.0.1 = "this computer only". Only the Cloudflare Tunnel (on the same Mac)
 # can reach it, never other devices on the home Wi-Fi.
@@ -35,7 +35,7 @@ HOST = "127.0.0.1"
 PORT = 8000
 WEBHOOK_PATH = "/webhook"
 # Meta's API version. Each version works for about 2 years.
-DEFAULT_GRAPH_VERSION = "v23.0"
+DEFAULT_GRAPH_VERSION = "v27.0"
 # Webhook notices are small. Refuse anything bigger (protects the Mac).
 MAX_BODY_BYTES = 1_000_000
 
@@ -155,6 +155,10 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == WEBHOOK_PATH:
             self.verify_webhook(parse_qs(url.query))
+        elif url.path == "/privacy":
+            # Meta requires a public privacy policy before the app can be published.
+            body = (PAGES_DIR / "privacy.html").read_bytes()
+            self.respond(200, body, "text/html; charset=utf-8")
         elif url.path == "/health":
             self.respond(200, b"ok", "text/plain; charset=utf-8")
         else:

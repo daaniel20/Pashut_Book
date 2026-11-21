@@ -10,6 +10,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_DIR / ".env"
 TEXTS_DIR = Path(__file__).resolve().parent / "texts"
+PAGES_DIR = Path(__file__).resolve().parent / "pages"
 
 
 def read_env(path=ENV_FILE):
