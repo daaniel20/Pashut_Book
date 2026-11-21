@@ -3,7 +3,7 @@
 Run from the project folder:  python3 server/check_whatsapp.py
 It checks that the access token works, that the phone number ID is right,
 and that our app is connected to the WhatsApp account (so Meta sends us
-messages). If the app isn't connected, it connects it.
+messages). It (re)connects the app every time, which is safe.
 It never prints the token.
 """
 
@@ -52,12 +52,21 @@ def main():
           f"({number.get('verified_name')})")
 
     waba = env["WHATSAPP_BUSINESS_ACCOUNT_ID"]
-    apps = call(env, "GET", f"{waba}/subscribed_apps").get("data", [])
-    if apps:
-        print("✅ The app is connected to the WhatsApp account (Meta will send us messages).")
+    numbers = call(env, "GET", f"{waba}/phone_numbers").get("data", [])
+    if any(n.get("id") == env["WHATSAPP_PHONE_NUMBER_ID"] for n in numbers):
+        print("✅ The phone number belongs to this WhatsApp account.")
     else:
-        call(env, "POST", f"{waba}/subscribed_apps")
-        print("✅ The app wasn't connected to the WhatsApp account. Connected it now.")
+        sys.exit("❌ WHATSAPP_BUSINESS_ACCOUNT_ID doesn't match the phone number. "
+                 "Copy both IDs again from the app's WhatsApp → API Setup page.")
+
+    # Connect our app to the WhatsApp account. Safe to repeat. This is what
+    # makes Meta send real messages (not only dashboard tests) to our webhook.
+    call(env, "POST", f"{waba}/subscribed_apps")
+    apps = call(env, "GET", f"{waba}/subscribed_apps").get("data", [])
+    names = [a.get("whatsapp_business_api_data", {}).get("name", "?") for a in apps]
+    print(f"✅ Apps that get this account's messages: {', '.join(names) or 'none'}")
+    if len(apps) > 1:
+        print("⚠️  More than one app is connected. Tell Claude the names above.")
 
 
 if __name__ == "__main__":
