@@ -113,10 +113,64 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "design")
         self.assertEqual(state["photos"], 0)
 
+    def finished_order(self, title_button="cover_no"):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", title_button)
+        return state
+
+    def test_summary_has_change_buttons(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")
+        talk(state, "button", "photos_done")
+        replies = talk(state, "button", "cover_no")
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design"])
+
+    def test_add_a_title_after_choosing_none(self):
+        state = self.finished_order()
+        replies = talk(state, "button", "edit_title")
+        self.assertEqual(state["step"], "title")
+        self.assertEqual(button_ids(replies[0]), ["cover_no"])
+        replies = talk(state, "text", "יום הולדת לסבתא")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(state["title"], "יום הולדת לסבתא")
+        self.assertIn("יום הולדת לסבתא", replies[0]["text"])
+        self.assertNotIn("editing", state["notes"])
+
+    def test_remove_a_title(self):
+        state = self.finished_order()
+        talk(state, "button", "edit_title")
+        talk(state, "text", "החופשה")
+        talk(state, "button", "edit_title")
+        talk(state, "button", "cover_no")
+        self.assertEqual(state["step"], "done")
+        self.assertIsNone(state["title"])
+
+    def test_change_design_goes_straight_back_to_the_summary(self):
+        state = self.finished_order()
+        replies = talk(state, "button", "edit_design")
+        self.assertEqual(button_ids(replies[0]), ["design_classic", "design_colorful"])
+        replies = talk(state, "button", "design_colorful")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(state["design"], "colorful")
+        self.assertEqual(state["photos"], 1)  # photos are kept
+        self.assertIn("צבעוני", replies[0]["text"])
+
+    def test_text_after_done_offers_the_change_buttons(self):
+        state = self.finished_order()
+        replies = talk(state, "text", "תודה")
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design"])
+
     def test_button_titles_fit_whatsapp(self):
         # WhatsApp refuses button titles longer than 20 characters.
         for key in ["design_classic", "design_colorful", "button_photos_done",
-                    "button_cover_yes", "button_cover_no"]:
+                    "button_cover_yes", "button_cover_no",
+                    "button_edit_title", "button_edit_design"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):

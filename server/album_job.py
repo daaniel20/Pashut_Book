@@ -10,6 +10,9 @@ AlbumJobs.start(). In the background it:
 4. otherwise, tells the customer in one short message if photos were left out
    (blurry, duplicates), and builds the album.
 
+If the customer changes the title or design from the summary while the album
+is being built, it is built again when the current build ends.
+
 The album is built on this Mac, in output/albums/<order>/ (open album.html).
 The customer sees nothing more yet: the page previews are task 2.4, and the
 owner's approval is task 3.1.
@@ -44,24 +47,33 @@ class AlbumJobs:
         self.texts = texts
         self.run_tool = run_tool or run_album_tool
         self._running = set()
+        self._again = set()   # changed while building: build once more
+        self._told = set()    # already told which photos were left out
         self._guard = threading.Lock()
 
     def start(self, phone, order_id):
         """Check and build in the background (called by orders.py)."""
         with self._guard:
             if order_id in self._running:
+                self._again.add(order_id)
                 return
             self._running.add(order_id)
         threading.Thread(target=self._safe_run, args=(phone, order_id), daemon=True).start()
 
     def _safe_run(self, phone, order_id):
-        try:
-            self.run(phone, order_id)
-        except Exception:
-            log.exception("Something went wrong while building album %s", short(order_id))
-        finally:
+        while True:
+            try:
+                self.run(phone, order_id)
+            except Exception:
+                log.exception("Something went wrong while building album %s", short(order_id))
             with self._guard:
+                if order_id in self._again:
+                    self._again.discard(order_id)
+                    log.info("Album %s: the customer changed something; building again",
+                             short(order_id))
+                    continue
                 self._running.discard(order_id)
+                return
 
     def run(self, phone, order_id):
         name = short(order_id)
@@ -85,7 +97,8 @@ class AlbumJobs:
             return
 
         message = conversation.left_out_message(info["left_out"], self.texts)
-        if message:
+        if message and order_id not in self._told:
+            self._told.add(order_id)
             self.send(phone, {"text": message})
 
         result = self.run_tool(order_id, check_only=False)
