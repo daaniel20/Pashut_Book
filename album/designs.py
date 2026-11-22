@@ -37,7 +37,7 @@ RIGHT_TO_LEFT = True
 DESIGNS = {
     "classic": {
         "backgrounds": ["#FFFFFF"],
-        "margin": 12,
+        "margin": 9,
         "gap": 4,
         "corner": 0,
         "border": 0,
@@ -49,11 +49,11 @@ DESIGNS = {
     },
     "colorful": {
         "backgrounds": ["#FDE2E4", "#E2F0CB", "#CDE7F0", "#FFF1C1", "#E8DFF5"],
-        "margin": 14,
-        "gap": 6,
+        "margin": 10,
+        "gap": 5,
         "corner": 4,
         "border": 2,
-        "full_page": False,
+        "full_page": True,
         "font": FONTS_DIR / "Rubik.ttf",
         "font_weight": "SemiBold",
         "title_color": "#3A3A3A",
@@ -73,13 +73,16 @@ TEMPLATES = {
     "one":        [(0, 0, 1, 1)],
     "one_small":  [(0.2, 0.15, 0.6, 0.7)],
     # 2 photos
-    "two_side":   [(0, 0.18, 0.5, 0.64), (0.5, 0.18, 0.5, 0.64)],   # 2 upright (3:4)
+    "two_side":   [(0, 0.18, 0.5, 0.64), (0.5, 0.18, 0.5, 0.64)],   # 2 upright (3:4), uncut
+    "two_side_tall": [(0, 0.06, 0.5, 0.88), (0.5, 0.06, 0.5, 0.88)],  # 2 upright, trimmed a little
+    "two_tall":   [(0, 0, 0.5, 1), (0.5, 0, 0.5, 1)],               # 2 tall (phone screen, 9:16)
     "two_stack":  [(0, 0, 1, 0.5), (0, 0.5, 1, 0.5)],
-    "two_offset": [(0, 0.02, 0.64, 0.48), (0.36, 0.5, 0.64, 0.48)],   # 2 wide photos
-    "two_mixed":  [(0, 0.2, 0.45, 0.6), (0.45, 0.28, 0.55, 0.44)],  # 1 upright + 1 wide
+    "two_offset": [(0, 0, 0.7, 0.5), (0.3, 0.5, 0.7, 0.5)],     # 2 wide photos
+    "two_mixed":  [(0, 0.1, 0.5, 0.8), (0.5, 0.28, 0.5, 0.44)],  # 1 upright + 1 wide
     # 3 photos
     "three_side": [(0, 0, 0.6, 1), (0.6, 0, 0.4, 0.5), (0.6, 0.5, 0.4, 0.5)],
     "three_top":  [(0, 0, 1, 0.6), (0, 0.6, 0.5, 0.4), (0.5, 0.6, 0.5, 0.4)],
+    "three_tall": [(0, 0.2, 1 / 3, 0.6), (1 / 3, 0.2, 1 / 3, 0.6), (2 / 3, 0.2, 1 / 3, 0.6)],
     "three_small": [(0, 0, 0.5, 0.5), (0.5, 0, 0.5, 0.5), (0.25, 0.5, 0.5, 0.5)],
     # 4 photos
     "four":       [(0, 0, 0.5, 0.5), (0.5, 0, 0.5, 0.5), (0, 0.5, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)],
