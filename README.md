@@ -90,7 +90,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 | ② | Server / logic | Python, running on the owner's Mac Mini, exposed to the internet with **Cloudflare Tunnel** | ₪0 |
 | ② | AI | Claude (Anthropic) | about ₪5–30 a month |
 | ③ | Data and photos | Supabase (free plan) | ₪0 |
-| ④ | Album builder | Our own code: HTML page templates converted to PDF and images | ₪0 |
+| ④ | Album builder | Our own code: page templates as data, drawn into page images and a PDF | ₪0 |
 | ⑤ | Payment | Bit request sent by hand at first, later a payment company | ₪0 at first |
 | ⑥ | Owner approval | The owner's personal WhatsApp ("Approve" / "Problem" buttons) | ₪0 |
 

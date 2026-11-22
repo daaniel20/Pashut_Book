@@ -8,6 +8,8 @@ The steps, in order:
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works"
+  hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
+                 Set by album_job.py after it checks the photos, not by answer().
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -91,7 +93,11 @@ def answer(state, kind, value, texts):
         if (kind == "button" and value == "photos_done") or words in _word_list(t, "done_words"):
             if state["photos"] == 0:
                 return [_text(t["no_photos_yet"])]
+            if "cover_asked" in state["notes"]:
+                # They already answered about the cover (they're resending photos in HD).
+                return _finish(state, t)
             state["step"] = "cover"
+            state["notes"].append("cover_asked")
             return [_cover_buttons(t, state)]
         if kind == "other":
             return _once(state, "not_a_photo", [_done_button(t, t["not_a_photo"])])
@@ -115,8 +121,47 @@ def answer(state, kind, value, texts):
             return _save_title(state, value, t)
         return [_title_request(t)]
 
+    if step == "hd_question":
+        if (kind == "button" and value == "hd_continue") or words == _clean(t["button_hd_continue"]):
+            state["step"] = "done"
+            return [_text(t["hd_continue"])]
+        if (kind == "button" and value == "hd_help") or words == _clean(t["button_hd_help"]):
+            _resend_photos(state)
+            return [_done_button(t, t["hd_how_to"].format(max=MAX_PHOTOS))]
+        return [hd_question(t)]
+
     # step == "done"
     return _once(state, "after_done", [_text(t["after_done"])])
+
+
+def hd_question(t):
+    """Most photos came without HD: ask to resend them (sent by album_job.py)."""
+    return {"text": t["hd_question"], "buttons": [
+        {"id": "hd_help", "title": t["button_hd_help"]},
+        {"id": "hd_continue", "title": t["button_hd_continue"]},
+    ]}
+
+
+def left_out_message(left_out, t):
+    """One short message about photos left out of the album, e.g.
+    "3 blurry and 2 repeated photos were left out". None if nothing was left out.
+    left_out is {"blurry": 3, "duplicate": 2, "unusable": 0}."""
+    parts = []
+    for reason in ("blurry", "duplicate", "unusable"):
+        count = left_out.get(reason, 0)
+        if count:
+            one, many = t["left_out_" + reason]
+            parts.append(one if count == 1 else many.format(count=count))
+    if not parts:
+        return None
+    if len(parts) > 1:
+        last = parts.pop()
+        # Hebrew "and" sticks to the next word; before a number it takes a dash: ו-2
+        joined = t["and"] + ("-" if last[0].isdigit() else "") + last
+        parts = [", ".join(parts) + " " + joined]
+    total = sum(left_out.values())
+    verb = t["left_out_verb_one"] if total == 1 else t["left_out_verb_many"]
+    return t["left_out"].format(list=parts[0], verb=verb)
 
 
 # ---------- helpers ----------
@@ -127,6 +172,11 @@ def _media(media):
 
 def _on_photo(state, t):
     step = state["step"]
+    if step == "hd_question":
+        # They're already sending the photos again, in HD.
+        _resend_photos(state)
+        state["photos"] = 1
+        return [_done_button(t, t["hd_resending"])]
     if step == "done":
         return _once(state, "after_done", [_text(t["after_done"])])
     if state["photos"] >= MAX_PHOTOS:
@@ -138,6 +188,16 @@ def _on_photo(state, t):
         return [_done_button(t, t["first_photo"])]
     # Customers send many photos; we stay quiet instead of answering each one.
     return []
+
+
+def _resend_photos(state):
+    """Start the photos over. orders.py sees "resend_photos" and deletes the old ones."""
+    state["step"] = "photos"
+    state["photos"] = 0
+    state["resend_photos"] = True
+    for note in ("photo_limit", "not_a_photo"):
+        if note in state["notes"]:
+            state["notes"].remove(note)
 
 
 def _pick_design(kind, value, words, t):

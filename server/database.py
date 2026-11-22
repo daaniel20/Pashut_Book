@@ -36,6 +36,10 @@ class Database:
                           + "&order=created_at.desc&limit=1")
         return rows[0] if rows else None
 
+    def get_order(self, order_id):
+        rows = self._call("GET", "/rest/v1/orders?id=eq." + quote(order_id))
+        return rows[0] if rows else None
+
     def create_order(self, phone, fields):
         rows = self._call("POST", "/rest/v1/orders", dict(fields, phone=phone),
                           prefer="return=representation")
