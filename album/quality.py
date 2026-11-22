@@ -18,6 +18,8 @@ or Supabase, so the album builder can use it with photos from anywhere.
 Needs Pillow (a common Python library for images): see requirements.txt.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
