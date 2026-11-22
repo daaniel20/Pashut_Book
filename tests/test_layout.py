@@ -96,9 +96,12 @@ class LayoutTest(unittest.TestCase):
         page = next(p for p in album.pages if p.template in ("two_side", "four"))
         self.assertGreater(page.spots[0].x, page.spots[1].x)
 
-    def test_colorful_has_no_edge_to_edge_photos(self):
-        album = layout.make_album(fake_photos(60), "colorful")
-        self.assertNotIn("full", [p.template for p in album.pages])
+    def test_some_edge_to_edge_pages_but_not_in_a_row(self):
+        for design in designs.DESIGNS:
+            templates = [p.template for p in layout.make_album(fake_photos(60), design).pages]
+            self.assertIn("full", templates)
+            for a, b in zip(templates, templates[1:]):
+                self.assertFalse(a == b == "full")
 
     def test_no_usable_photos(self):
         with self.assertRaises(ValueError):
@@ -186,7 +189,8 @@ class FacesTest(unittest.TestCase):
             for page in album.pages:
                 for spot in page.spots:
                     cut_off = 1 - spot.crop[2] * spot.crop[3]
-                    limit = layout.MAX_CUT_PEOPLE if faces[spot.photo] else layout.MAX_CUT
+                    limit = (layout.MAX_CUT_PEOPLE if faces[spot.photo] and page.template != "full"
+                             else layout.MAX_CUT)
                     self.assertLessEqual(cut_off, limit + 1e-6)
 
 

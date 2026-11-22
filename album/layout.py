@@ -31,7 +31,10 @@ import designs
 # without people (landscapes, food) may be cut more: 0.26 lets an upright
 # phone photo (3:4) fill a square spot.
 MAX_CUT = 0.26
-MAX_CUT_PEOPLE = 0.15
+MAX_CUT_PEOPLE = 0.22
+# How much the layout choice cares about filling the page with photo rather
+# than background (owner's feedback: photos looked small on the page).
+FILL_WEIGHT = 1.0
 # No photo is shown smaller than this on its short side (mm), unless a page
 # has no other way to fit its photos.
 MIN_PHOTO_MM = 45
@@ -105,7 +108,7 @@ def make_album(photos, design, title=None):
     for number, size in enumerate(sizes):
         group = usable[start:start + size]
         start += size
-        allow_full = style["full_page"] and "full" not in recent[-5:]
+        allow_full = style["full_page"] and "full" not in recent[-3:]
         name, order = _best_template(group, recent, allow_full, style)
         recent.append(name)
         background = style["backgrounds"][number % len(style["backgrounds"])]
@@ -152,13 +155,15 @@ def _best_template(group, recent, allow_full, style):
             if any(photo.grade != "ok" and not shape[1]
                    for photo, shape in zip(order, shapes)):
                 continue    # a lower-quality photo in a big spot: not allowed
-            cuts = [_cut(photo, shape[0]) for photo, shape in zip(order, shapes)]
+            cuts = [_cut(photo, shape[0], full_page=name == "full")
+                    for photo, shape in zip(order, shapes)]
             if name == "full" and None in cuts:
                 continue    # an edge-to-edge page must be cut to fit
             # Cutting costs what is cut off. Showing the whole photo smaller costs
             # twice the empty space around it, plus extra (an uneven page looks
             # less tidy), so a photo is shrunk only a little, never to a tiny size.
             cost = 0
+            covered = 0     # mm² of the page covered by photos
             for photo, (aspect, _, width, height), cut in zip(order, shapes, cuts):
                 loss = _crop_loss(photo, aspect)
                 if cut is None:
@@ -168,7 +173,10 @@ def _best_template(group, recent, allow_full, style):
                     cost += loss
                 if min(width, height) < MIN_PHOTO_MM:
                     cost += 2       # too small to enjoy: only if nothing else fits
+                covered += width * height
             score = cost / len(group)
+            # Bigger photos, less empty background.
+            score += FILL_WEIGHT * (1 - covered / (designs.PAGE_WIDTH * designs.PAGE_HEIGHT))
             score += 0.05 * _out_of_order(group, order)   # keep the order when we can
             if name in recent[-2:]:
                 score += 0.15      # don't repeat the same look page after page
@@ -219,7 +227,7 @@ def _crop_loss(photo, spot_aspect):
 
 # ---------- cutting a photo to fit its spot ----------
 
-def _cut(photo, spot_aspect):
+def _cut(photo, spot_aspect, full_page=False):
     """The part of the photo to show in a spot of this shape: (x, y, w, h) as
     parts of the photo. None if it can't be cut without losing a face or too
     much of the photo: then the whole photo is shown, smaller."""
@@ -227,7 +235,10 @@ def _cut(photo, spot_aspect):
         return (0, 0, 1, 1)
     aspect = photo.width / photo.height
     faces = _faces_box(getattr(photo, "faces", None) or [])
-    if _crop_loss(photo, spot_aspect) > (MAX_CUT_PEOPLE if faces else MAX_CUT):
+    # A photo with people is trimmed less, except on an edge-to-edge page, which
+    # must be filled (an upright phone photo on a square page loses 25%).
+    limit = MAX_CUT_PEOPLE if faces and not full_page else MAX_CUT
+    if _crop_loss(photo, spot_aspect) > limit:
         return None
     if aspect > spot_aspect:            # wider than the spot: cut the sides
         width = spot_aspect / aspect
@@ -301,12 +312,12 @@ def _page(name, photos, background, style):
             small=max(spot_w, spot_h) <= designs.SMALL_SPOT * longest_page_side,
         ))
         if photo is not None:
-            _fit_photo(page.spots[-1], photo)
+            _fit_photo(page.spots[-1], photo, full_page=name == "full")
     return page
 
 
-def _fit_photo(spot, photo):
-    cut = _cut(photo, spot.width / spot.height)
+def _fit_photo(spot, photo, full_page=False):
+    cut = _cut(photo, spot.width / spot.height, full_page)
     if cut is None:
         _fit_inside(spot, photo)
     else:
