@@ -1,34 +1,18 @@
-"""Check that the Mac can reach our Supabase project (task 0.3).
+"""Check our Supabase project, and show the latest orders (tasks 0.3 and 1.3).
 
 Run from the project folder:  python3 server/check_supabase.py
 It reads SUPABASE_URL and SUPABASE_SECRET_KEY from the .env file.
-It never prints the key.
+It never prints the key, and shows only the last 3 digits of phone numbers.
 """
 
-import json
 import sys
-import urllib.error
-import urllib.request
-from pathlib import Path
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
-
-
-def read_env(path):
-    """Read simple NAME=value lines from the .env file."""
-    values = {}
-    if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            name, value = line.split("=", 1)
-            values[name.strip()] = value.strip().strip('"').strip("'")
-    return values
+from database import Database, DatabaseError
+from settings import ENV_FILE, read_env
 
 
 def main():
-    env = read_env(ENV_FILE)
+    env = read_env()
     url = env.get("SUPABASE_URL", "").rstrip("/")
     key = env.get("SUPABASE_SECRET_KEY", "")
 
@@ -42,21 +26,30 @@ def main():
         sys.exit("❌ SUPABASE_SECRET_KEY should start with sb_secret_ "
                  "(did you copy the publishable key by mistake?)")
 
-    # Ask Supabase for the list of photo storage buckets. Needs a valid key.
-    request = urllib.request.Request(
-        f"{url}/storage/v1/bucket", headers={"apikey": key}
-    )
+    db = Database(url, key, timeout=15)
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            buckets = json.load(response)
-    except urllib.error.HTTPError as error:
-        sys.exit(f"❌ Supabase answered with error {error.code}. "
-                 "Check that the key was copied in full.")
-    except urllib.error.URLError as error:
-        sys.exit(f"❌ Could not reach Supabase: {error.reason}. "
-                 "Check SUPABASE_URL and the internet connection.")
+        bucket = db.bucket()
+        orders = db.recent_orders(5)
+    except DatabaseError as error:
+        sys.exit(f"❌ {error}\n   Check the key (copied in full?) and the internet connection.")
 
-    print(f"✅ Connected to Supabase. Photo buckets so far: {len(buckets)}")
+    print("✅ Connected to Supabase.")
+    if bucket.get("public"):
+        print("⚠️  The photos bucket is PUBLIC. Make it private in the Supabase dashboard!")
+    else:
+        print("✅ The photos bucket is private.")
+
+    if not orders:
+        print("No orders yet.")
+        return
+    print("\nLatest orders (newest first):")
+    for order in orders:
+        saved = order["photos"][0]["count"] if order.get("photos") else 0
+        mark = "✅" if saved == order["photo_count"] else "⏳"
+        print(f"  {order['created_at'][:16].replace('T', ' ')}  …{order['phone'][-3:]}  "
+              f"{order['status']:<10}  photos: {order['photo_count']} counted, "
+              f"{saved} saved {mark}")
+    print("\n(⏳ = some photos are still uploading, or failed. Check the log.)")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ Every answer is a list of messages. A message is a dict:
   {"text": "...", "buttons": [{"id": "...", "title": "..."}]}   ("buttons" is optional)
 
 All customer-facing words come from server/texts/<language>.json.
-Photos are only COUNTED here. Saving them comes in task 1.3.
+Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 """
 
 # The two album designs. Their names for the customer are in the texts file
@@ -35,6 +35,8 @@ def read_message(message):
     """Turn one WhatsApp message (as Meta sends it) into (kind, value).
 
     kind is one of: "text", "button", "photo", "other".
+    For a photo, value is {"id": ..., "mime_type": ...}: what we need to
+    download it from WhatsApp.
     """
     kind = message.get("type")
     if kind == "text":
@@ -43,10 +45,10 @@ def read_message(message):
         reply = message.get("interactive", {}).get("button_reply") or {}
         return "button", reply.get("id", "")
     if kind == "image":
-        return "photo", None
+        return "photo", _media(message.get("image", {}))
     # A photo sent "as a file" (also keeps full quality) arrives as a document.
     if kind == "document" and message.get("document", {}).get("mime_type", "").startswith("image/"):
-        return "photo", None
+        return "photo", _media(message["document"])
     return "other", kind
 
 
@@ -118,6 +120,10 @@ def answer(state, kind, value, texts):
 
 
 # ---------- helpers ----------
+
+def _media(media):
+    return {"id": media.get("id"), "mime_type": media.get("mime_type")}
+
 
 def _on_photo(state, t):
     step = state["step"]
