@@ -10,9 +10,10 @@ The steps, in order:
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
-              The summary has a "change something" list (title, design, cover
-              photo, add photos): that goes back to the "title", "design",
-              "cover_photo" or "photos" step, then straight to a new summary.
+              The summary has two buttons: "all correct" (a short thank-you) and
+              "change something", which opens a list (title, design, cover photo,
+              add photos): that goes back to the "title", "design", "cover_photo"
+              or "photos" step, then straight to a new summary.
   The cover-title question and the title step also have an "add photos" button,
   for customers who tapped "done" too early.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
@@ -190,9 +191,14 @@ def answer(state, kind, value, texts):
         return [_keep_cover_button(t, t["ask_new_cover_photo"])]
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
         return _back_to_photos(state, t)
-    if kind == "text" and words == _clean(t["button_edit"]):
-        return [_edit_buttons(t, t["choose_edit"])]
-    return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+    if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
+        return [_edit_list(t, t["choose_edit"])]
+    if _tapped(kind, value, words, "confirm", t["button_confirm"]):
+        if "confirmed" in state["notes"]:
+            return []
+        state["notes"].append("confirmed")
+        return [_text(t["confirmed"])]
+    return _once(state, "after_done", [_change_button(t, t["after_done"])])
 
 
 def cover_photo(state):
@@ -253,7 +259,7 @@ def _on_photo(state, t):
         state["photos"] = 1
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
-        return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+        return _once(state, "after_done", [_change_button(t, t["after_done"])])
     if step == "cover_photo":
         # The cover photo is also an album photo. A new cover chosen from the
         # summary may go one over the limit; the old cover stays inside.
@@ -322,7 +328,7 @@ def _save_title(state, value, t):
 
 def _finish(state, t):
     state["step"] = "done"
-    for note in ("editing", "after_done"):
+    for note in ("editing", "after_done", "confirmed"):
         while note in state["notes"]:
             state["notes"].remove(note)
     summary = t["summary"].format(
@@ -330,7 +336,10 @@ def _finish(state, t):
         count=state["photos"],
         title=state["title"] or t["no_title"],
     )
-    return [_edit_buttons(t, summary)]
+    return [{"text": summary, "buttons": [
+        {"id": "confirm", "title": t["button_confirm"]},
+        {"id": "edit_menu", "title": t["button_edit"]},
+    ]}]
 
 
 def _photos(t, count):
@@ -372,8 +381,12 @@ def _design_buttons(t, text):
     ]}
 
 
-def _edit_buttons(t, text):
-    """The summary's "change something" list (WhatsApp allows only 3 buttons,
+def _change_button(t, text):
+    return {"text": text, "buttons": [{"id": "edit_menu", "title": t["button_edit"]}]}
+
+
+def _edit_list(t, text):
+    """The "change something" list (WhatsApp allows only 3 buttons,
     so the 4 choices are in a list that opens from one button)."""
     return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"], "rows": [
         {"id": "edit_title", "title": t["button_edit_title"]},

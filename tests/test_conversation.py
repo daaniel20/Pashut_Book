@@ -213,7 +213,19 @@ class ConversationTest(unittest.TestCase):
         talk(state, "photo")
         talk(state, "button", "photos_done")
         replies = talk(state, "button", "cover_no")
+        self.assertEqual(button_ids(replies[0]), ["confirm", "edit_menu"])
+        replies = talk(state, "button", "edit_menu")
         self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
+        self.assertEqual(state["step"], "done")
+
+    def test_all_correct(self):
+        state = self.finished_order()
+        replies = talk(state, "button", "confirm")
+        self.assertEqual(state["step"], "done")
+        self.assertIn("נעצב את האלבום", replies[0]["text"])
+        self.assertEqual(talk(state, "button", "confirm"), [])   # a second tap: quiet
+        replies = talk(state, "text", "תודה")                     # can still change later
+        self.assertEqual(button_ids(replies[0]), ["edit_menu"])
 
     def test_change_the_cover_photo(self):
         state = self.finished_order()
@@ -225,7 +237,7 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "done")
         self.assertEqual(state["photos"], count + 1)              # also goes inside
         self.assertEqual(conversation.cover_photo(state), count + 1)
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
+        self.assertEqual(button_ids(replies[0]), ["confirm", "edit_menu"])
 
     def test_keep_the_cover_photo(self):
         state = self.finished_order()
@@ -278,11 +290,11 @@ class ConversationTest(unittest.TestCase):
     def test_text_after_done_offers_the_change_buttons(self):
         state = self.finished_order()
         replies = talk(state, "text", "תודה")
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
+        self.assertEqual(button_ids(replies[0]), ["edit_menu"])
 
     def test_button_titles_fit_whatsapp(self):
         # WhatsApp refuses button titles longer than 20 characters.
-        for key in ["design_classic", "design_colorful", "button_photos_done",
+        for key in ["button_confirm", "design_classic", "design_colorful", "button_photos_done",
                     "button_cover_yes", "button_cover_no",
                     "button_edit_title", "button_edit_design",
                     "button_edit_cover", "button_keep_cover"]:
