@@ -35,7 +35,8 @@ except ImportError:
 
 # ---------- the limits (tune them after the test album, task S.4) ----------
 # Pixels on the long side of the photo. A full-page photo in a ~20x20 cm album
-# needs about 2000 pixels to look sharp. WhatsApp without HD sends ~1600.
+# needs about 2000 pixels to look sharp. WhatsApp without HD sends 2048
+# (measured Nov 2026: 57 photos via the bot, all exactly 2048 on the long side).
 FULL_PAGE_PIXELS = 2000
 MIN_PIXELS = 800          # below this, too small even for a small spot
 # Sharpness score (higher = sharper). Measured on the sharpest parts of the photo,
