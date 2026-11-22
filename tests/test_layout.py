@@ -160,6 +160,17 @@ class FacesTest(unittest.TestCase):
         self.assertLessEqual(y, 0.35 - 0.08)                 # a head's height above the face is in
         self.assertLess(y, (1 - h) / 2)                      # cut more from the bottom
 
+    def test_tall_photos_stay_big(self):
+        # Page 11: two tall (phone-screen) photos were shown tiny.
+        tall = (1152, 2048)
+        for count in (2, 3):
+            group = [photo(f"t{n}", tall, [(0.3, 0.2, 0.2, 0.1)]) for n in range(count)]
+            style = designs.DESIGNS["colorful"]
+            name, order = layout._best_template(group, [], False, style)
+            page = layout._page(name, order, "", style)
+            for spot in page.spots:
+                self.assertGreater(spot.height, 0.45 * designs.PAGE_HEIGHT, name)
+
     def test_whole_albums_keep_every_face(self):
         rng = random.Random(3)
         photos = []

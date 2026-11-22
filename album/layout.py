@@ -32,6 +32,9 @@ import designs
 # phone photo (3:4) fill a square spot.
 MAX_CUT = 0.26
 MAX_CUT_PEOPLE = 0.15
+# No photo is shown smaller than this on its short side (mm), unless a page
+# has no other way to fit its photos.
+MIN_PHOTO_MM = 45
 # Room kept around faces, in face sizes: above (hair, raised hands), below
 # (chin, shoulders) and at the sides.
 ROOM_ABOVE, ROOM_BELOW, ROOM_SIDE = 1.0, 0.6, 0.5
@@ -146,16 +149,25 @@ def _best_template(group, recent, allow_full, style):
             continue
         shapes = _spot_shapes(name, style)
         for order in _orders(group):
-            if any(photo.grade != "ok" and not small
-                   for photo, (_, small) in zip(order, shapes)):
+            if any(photo.grade != "ok" and not shape[1]
+                   for photo, shape in zip(order, shapes)):
                 continue    # a lower-quality photo in a big spot: not allowed
-            cuts = [_cut(photo, aspect) for photo, (aspect, _) in zip(order, shapes)]
+            cuts = [_cut(photo, shape[0]) for photo, shape in zip(order, shapes)]
             if name == "full" and None in cuts:
                 continue    # an edge-to-edge page must be cut to fit
             # Cutting costs what is cut off. Showing the whole photo smaller costs
-            # the empty space around it, plus extra: an uneven page looks less tidy.
-            cost = sum(_crop_loss(photo, aspect) + (0.3 if cut is None else 0)
-                       for photo, (aspect, _), cut in zip(order, shapes, cuts))
+            # twice the empty space around it, plus extra (an uneven page looks
+            # less tidy), so a photo is shrunk only a little, never to a tiny size.
+            cost = 0
+            for photo, (aspect, _, width, height), cut in zip(order, shapes, cuts):
+                loss = _crop_loss(photo, aspect)
+                if cut is None:
+                    cost += 2 * loss + 0.2
+                    width, height = _whole_size(photo, width, height)
+                else:
+                    cost += loss
+                if min(width, height) < MIN_PHOTO_MM:
+                    cost += 2       # too small to enjoy: only if nothing else fits
             score = cost / len(group)
             score += 0.05 * _out_of_order(group, order)   # keep the order when we can
             if name in recent[-2:]:
@@ -183,9 +195,18 @@ def _out_of_order(group, order):
 
 
 def _spot_shapes(name, style):
-    """(width / height, is it small?) for each spot of a template, on the real page."""
+    """(width / height, is it small?, width, height) for each spot of a template,
+    on the real page (mm)."""
     page = _page(name, [None] * len(designs.TEMPLATES[name]), "", style)
-    return [(s.width / s.height, s.small) for s in page.spots]
+    return [(s.width / s.height, s.small, s.width, s.height) for s in page.spots]
+
+
+def _whole_size(photo, width, height):
+    """The size of the whole photo when it is fitted inside a spot."""
+    if not photo.width or not photo.height:
+        return width, height
+    aspect = photo.width / photo.height
+    return (width, width / aspect) if width / height < aspect else (height * aspect, height)
 
 
 def _crop_loss(photo, spot_aspect):
