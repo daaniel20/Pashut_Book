@@ -100,7 +100,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 2.1 | **Quality check:** blurry photos, duplicates, image size, sort by date. Guide: [docs/setup/2.1-quality-check.md](docs/setup/2.1-quality-check.md) | 🤝 | Bad photos in a test folder are flagged |
+| 2.1 ✅ | **Quality check:** blurry photos, duplicates, image size, sort by date. Guide: [docs/setup/2.1-quality-check.md](docs/setup/2.1-quality-check.md) | 🤝 | Bad photos in a test folder are flagged. ✅ Done Nov 22, 2026: 16-photo test on the Mac; burst shots removed, blurry limits raised to 80/150 after the test |
 | 2.2 | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD, ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message |
 | 2.3 | **Print PDF** in the printer's exact specifications | 🤝 | The printer accepts the file |
 | 2.4 | **Watermarked previews:** small, numbered page images sent in WhatsApp | 🤝 | You get the page images in WhatsApp |
