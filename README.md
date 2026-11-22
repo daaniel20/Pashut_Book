@@ -126,6 +126,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 - Name and branding
 - Whether WhatsApp HD photos print well enough at full-page size
 - Whether customers can send a shared Google Photos / iCloud album link instead of choosing 50–100 photos themselves
+- *Idea only:* print **loose pages** at a local printer and bind them ourselves in a unique way (for example a hard cover held by 2–3 screws through holes), to save money and stand out. Bonus: customers could add pages later ("an album that grows"), which brings repeat orders. Risks: owner time per album, a homemade look, the cost of covers, and a ~2 cm empty strip on every page for the holes. Middle option: wire-O binding (a metal spiral) done by the printer. To test cheaply: ask for loose-page and wire-O prices in the printer quotes (S.2), make one prototype and time it, and show it to 5 target customers. Decide before task 2.3 (print PDF), because it changes the page margins.
 
 ---
 
