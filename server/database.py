@@ -63,6 +63,15 @@ class Database:
         self._call("PATCH", "/rest/v1/photos?id=eq." + quote(photo_id),
                    {"size_bytes": size_bytes}, prefer="return=minimal")
 
+    def order_photos(self, order_id):
+        """An order's saved photos (number and file path), in the order received."""
+        return self._call("GET", "/rest/v1/photos?select=number,storage_path&order=number"
+                          "&order_id=eq." + quote(order_id))
+
+    def download(self, path):
+        """Download one photo file from the private bucket (kept in memory)."""
+        return self._call("GET", f"/storage/v1/object/{BUCKET}/{quote(path)}", as_bytes=True)
+
     def remove_photo_row(self, photo_id):
         self._call("DELETE", "/rest/v1/photos?id=eq." + quote(photo_id))
 
@@ -87,7 +96,7 @@ class Database:
     # ---------- the actual web request ----------
 
     def _call(self, method, path, body=None, raw=None, prefer=None,
-              content_type="application/json", extra_headers=None):
+              content_type="application/json", extra_headers=None, as_bytes=False):
         headers = {
             "apikey": self.key,
             "Authorization": "Bearer " + self.key,
@@ -110,4 +119,6 @@ class Database:
                                 f"{path.split('?')[0]}: {detail}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise DatabaseError(f"Could not reach Supabase: {error}") from None
+        if as_bytes:
+            return text
         return json.loads(text) if text else None
