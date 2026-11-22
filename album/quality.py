@@ -40,8 +40,8 @@ FULL_PAGE_PIXELS = 2000
 MIN_PIXELS = 800          # below this, too small even for a small spot
 # Sharpness score (higher = sharper). Measured on the sharpest parts of the photo,
 # so a portrait with a soft background is still fine.
-BLURRY_BELOW = 30         # skip
-SOFT_BELOW = 100          # small spots only
+BLURRY_BELOW = 80         # skip (owner test, Nov 2026: blurry shots scored 57-59)
+SOFT_BELOW = 150          # small spots only (good photos scored 298+)
 # How different two photos' fingerprints are (0 = identical, 64 = nothing alike).
 # Measured: the same photo resized or recompressed = 0-1; shots taken a second
 # apart = 2-9; different photos = 25 or more.
