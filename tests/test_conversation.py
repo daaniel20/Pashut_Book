@@ -25,6 +25,18 @@ def button_ids(message):
     return [row["id"] for row in rows]
 
 
+# Most checks here are about other steps and send only a few photos, so the
+# "only N photos, add more?" question (FewPhotosTest) is turned down for them.
+def setUpModule():
+    global _real_few
+    _real_few = conversation.FEW_PHOTOS
+    conversation.FEW_PHOTOS = 2
+
+
+def tearDownModule():
+    conversation.FEW_PHOTOS = _real_few
+
+
 class ConversationTest(unittest.TestCase):
     def test_full_happy_path(self):
         state = conversation.new_state()
@@ -99,6 +111,7 @@ class ConversationTest(unittest.TestCase):
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
         talk(state, "photo")
+        talk(state, "photo")
         talk(state, "text", "זהו")
         talk(state, "text", "א" * 50)  # typed instead of tapping: treated as a title
         self.assertEqual(state["step"], "title")
@@ -109,6 +122,7 @@ class ConversationTest(unittest.TestCase):
         state = conversation.new_state()
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
+        talk(state, "photo")
         talk(state, "photo")
         talk(state, "button", "photos_done")
         talk(state, "button", "cover_no")
@@ -123,6 +137,7 @@ class ConversationTest(unittest.TestCase):
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
         talk(state, "photo")
+        talk(state, "photo")
         talk(state, "button", "photos_done")
         talk(state, "button", title_button)
         return state
@@ -132,6 +147,7 @@ class ConversationTest(unittest.TestCase):
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
         talk(state, "photo")                      # the cover photo
+        talk(state, "photo")
         talk(state, "button", "photos_done")      # tapped too early
         self.assertEqual(state["step"], "cover")
         replies = talk(state, "button", "add_photos")
@@ -141,17 +157,19 @@ class ConversationTest(unittest.TestCase):
             talk(state, "photo")
         replies = talk(state, "button", "photos_done")
         self.assertEqual(state["step"], "cover")  # the title question comes again
-        self.assertIn("6", replies[0]["text"])
+        self.assertIn("7", replies[0]["text"])
 
     def test_add_photos_from_the_title_step(self):
         state = conversation.new_state()
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
         talk(state, "photo")
+        talk(state, "photo")
         talk(state, "button", "photos_done")
         talk(state, "button", "cover_yes")
         talk(state, "button", "add_photos")
         self.assertEqual(state["step"], "photos")
+        talk(state, "photo")
         talk(state, "photo")
         talk(state, "button", "photos_done")
         self.assertEqual(state["step"], "cover")
@@ -165,8 +183,8 @@ class ConversationTest(unittest.TestCase):
         talk(state, "photo")
         replies = talk(state, "button", "photos_done")
         self.assertEqual(state["step"], "done")   # straight to a new summary
-        self.assertEqual(state["photos"], 3)
-        self.assertIn("3", replies[0]["text"])
+        self.assertEqual(state["photos"], 4)
+        self.assertIn("4", replies[0]["text"])
 
     def test_typing_change_something_shows_the_list(self):
         state = self.finished_order()
@@ -191,6 +209,7 @@ class ConversationTest(unittest.TestCase):
         state = conversation.new_state()
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
+        talk(state, "photo")
         talk(state, "photo")
         talk(state, "button", "photos_done")
         replies = talk(state, "button", "cover_no")
@@ -253,7 +272,7 @@ class ConversationTest(unittest.TestCase):
         replies = talk(state, "button", "design_colorful")
         self.assertEqual(state["step"], "done")
         self.assertEqual(state["design"], "colorful")
-        self.assertEqual(state["photos"], 1)  # photos are kept
+        self.assertEqual(state["photos"], 2)  # photos are kept
         self.assertIn("צבעוני", replies[0]["text"])
 
     def test_text_after_done_offers_the_change_buttons(self):
@@ -281,6 +300,62 @@ class ConversationTest(unittest.TestCase):
                                "interactive": {"button_reply": {"id": "cover_no"}}}),
                          ("button", "cover_no"))
         self.assertEqual(read({"type": "video"}), ("other", "video"))
+
+
+class FewPhotosTest(unittest.TestCase):
+    """Tapping "done" too early: only the cover photo, or only a few photos."""
+
+    def setUp(self):
+        conversation.FEW_PHOTOS = 40   # the real value (the module's checks use 2)
+
+    def tearDown(self):
+        conversation.FEW_PHOTOS = 2
+
+    def start(self, photos):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(photos):
+            talk(state, "photo")
+        return state
+
+    def test_only_the_cover_photo_is_not_enough(self):
+        state = self.start(1)
+        replies = talk(state, "button", "photos_done")
+        self.assertEqual(state["step"], "photos")
+        self.assertIn("תמונת הכריכה", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+
+    def test_few_photos_asks_once_then_add_more(self):
+        state = self.start(12)
+        replies = talk(state, "button", "photos_done")
+        self.assertEqual(state["step"], "photos")
+        self.assertIn("12 תמונות", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["add_photos", "few_photos_ok"])
+        replies = talk(state, "button", "add_photos")
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        for _ in range(30):
+            talk(state, "photo")
+        replies = talk(state, "button", "photos_done")   # 42 photos: no question
+        self.assertEqual(state["step"], "cover")
+
+    def test_few_photos_continue_anyway(self):
+        state = self.start(12)
+        talk(state, "button", "photos_done")
+        replies = talk(state, "button", "few_photos_ok")
+        self.assertEqual(state["step"], "cover")
+        self.assertIn("קיבלנו 12 תמונות", replies[0]["text"])
+        talk(state, "button", "add_photos")                # back again from the title question
+        talk(state, "photo")
+        talk(state, "button", "photos_done")               # already said "continue": not asked again
+        self.assertEqual(state["step"], "cover")
+
+    def test_one_photo_in_correct_hebrew(self):
+        self.assertEqual(conversation._photos(TEXTS, 1), "תמונה אחת")
+        self.assertEqual(conversation._photos(TEXTS, 5), "5 תמונות")
+
+    def test_buttons_fit_whatsapp(self):
+        self.assertLessEqual(len(TEXTS["button_few_photos_ok"]), 20)
 
 
 class AlbumMessagesTest(unittest.TestCase):
