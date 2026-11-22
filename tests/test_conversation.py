@@ -31,11 +31,14 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(button_ids(replies[1]), ["design_classic", "design_colorful"])
 
         replies = talk(state, "button", "design_colorful")
-        self.assertEqual(state["step"], "photos")
+        self.assertEqual(state["step"], "cover_photo")
         self.assertIn("HD", replies[0]["text"])
+        self.assertIn("כריכה", replies[0]["text"])
 
-        first = talk(state, "photo")
+        first = talk(state, "photo")             # the cover photo
+        self.assertIn("40", first[0]["text"])    # "send 40-100 photos"
         self.assertEqual(button_ids(first[0]), ["photos_done"])
+        self.assertEqual(conversation.cover_photo(state), 1)
         for _ in range(59):
             self.assertEqual(talk(state, "photo"), [])  # quiet, no reply per photo
         self.assertEqual(state["photos"], 60)
@@ -68,7 +71,7 @@ class ConversationTest(unittest.TestCase):
         talk(state, "text", "שלום")
         talk(state, "button", "design_classic")
         talk(state, "text", "סיימתי")
-        self.assertEqual(state["step"], "photos")
+        self.assertEqual(state["step"], "cover_photo")   # still waiting for the cover photo
 
     def test_photos_before_design_are_counted_with_one_reminder(self):
         state = conversation.new_state()
@@ -129,7 +132,37 @@ class ConversationTest(unittest.TestCase):
         talk(state, "photo")
         talk(state, "button", "photos_done")
         replies = talk(state, "button", "cover_no")
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
+
+    def test_change_the_cover_photo(self):
+        state = self.finished_order()
+        count = state["photos"]
+        replies = talk(state, "button", "edit_cover")
+        self.assertEqual(state["step"], "cover_photo")
+        self.assertEqual(button_ids(replies[0]), ["keep_cover"])
+        replies = talk(state, "photo")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(state["photos"], count + 1)              # also goes inside
+        self.assertEqual(conversation.cover_photo(state), count + 1)
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
+
+    def test_keep_the_cover_photo(self):
+        state = self.finished_order()
+        talk(state, "button", "edit_cover")
+        replies = talk(state, "text", "מה?")
+        self.assertEqual(button_ids(replies[0]), ["keep_cover"])
+        talk(state, "button", "keep_cover")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(conversation.cover_photo(state), 1)
+        self.assertNotIn("editing", state["notes"])
+
+    def test_photos_before_design_first_one_is_the_cover(self):
+        state = conversation.new_state()
+        talk(state, "photo")
+        talk(state, "photo")
+        talk(state, "button", "design_classic")
+        self.assertEqual(state["step"], "photos")
+        self.assertEqual(conversation.cover_photo(state), 1)
 
     def test_add_a_title_after_choosing_none(self):
         state = self.finished_order()
@@ -164,13 +197,14 @@ class ConversationTest(unittest.TestCase):
     def test_text_after_done_offers_the_change_buttons(self):
         state = self.finished_order()
         replies = talk(state, "text", "תודה")
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
 
     def test_button_titles_fit_whatsapp(self):
         # WhatsApp refuses button titles longer than 20 characters.
         for key in ["design_classic", "design_colorful", "button_photos_done",
                     "button_cover_yes", "button_cover_no",
-                    "button_edit_title", "button_edit_design"]:
+                    "button_edit_title", "button_edit_design",
+                    "button_edit_cover", "button_keep_cover"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):

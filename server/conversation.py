@@ -4,12 +4,15 @@ and what the bot answers.
 The steps, in order:
   new      -> the customer's first message: welcome + design buttons
   design   -> waiting for the customer to pick a design
+  cover_photo -> waiting for 1 photo for the cover (task 2.2). It is also used
+              inside the album. Its number is kept in the notes as "cover_photo:N".
   photos   -> waiting for photos, until the customer taps "done"
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
-              The summary has buttons to change the title or the design: that goes
-              back to the "title" or "design" step, then straight to a new summary.
+              The summary has buttons to change the title, the design or the cover
+              photo: that goes back to the "title", "design" or "cover_photo" step,
+              then straight to a new summary.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
 
@@ -87,12 +90,24 @@ def answer(state, kind, value, texts):
         if "editing" in state["notes"]:
             # They came back from the summary to change the design.
             return _finish(state, t)
-        state["step"] = "photos"
         messages = [_text(t["design_chosen"].format(
             design=t["design_" + design], max=MAX_PHOTOS))]
         if state["photos"]:
+            # They sent photos before choosing a design: the first one is the cover.
+            set_cover_photo(state, 1)
+            state["step"] = "photos"
+            messages[0] = _text(messages[0]["text"].rsplit("\n\n", 1)[0])
             messages.append(_done_button(t, t["photos_so_far"].format(count=state["photos"])))
+        else:
+            state["step"] = "cover_photo"
         return messages
+
+    if step == "cover_photo":
+        if "editing" in state["notes"]:
+            if (kind == "button" and value == "keep_cover") or words == _clean(t["button_keep_cover"]):
+                return _finish(state, t)
+            return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+        return [_text(t["ask_cover_photo"])]
 
     if step == "photos":
         if (kind == "button" and value == "photos_done") or words in _word_list(t, "done_words"):
@@ -146,7 +161,25 @@ def answer(state, kind, value, texts):
         state["step"] = "design"
         state["notes"].append("editing")
         return [_design_buttons(t, t["choose_design"])]
+    if (kind == "button" and value == "edit_cover") or words == _clean(t["button_edit_cover"]):
+        state["step"] = "cover_photo"
+        state["notes"].append("editing")
+        return [_keep_cover_button(t, t["ask_new_cover_photo"])]
     return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+
+
+def cover_photo(state):
+    """The number of the photo the customer chose for the cover, or None."""
+    for note in state["notes"]:
+        if note.startswith("cover_photo:"):
+            return int(note.split(":")[1])
+    return None
+
+
+def set_cover_photo(state, number):
+    state["notes"][:] = [n for n in state["notes"] if not n.startswith("cover_photo:")]
+    if number is not None:
+        state["notes"].append(f"cover_photo:{number}")
 
 
 def hd_question(t):
@@ -194,6 +227,15 @@ def _on_photo(state, t):
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
         return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+    if step == "cover_photo":
+        # The cover photo is also an album photo. A new cover chosen from the
+        # summary may go one over the limit; the old cover stays inside.
+        state["photos"] += 1
+        set_cover_photo(state, state["photos"])
+        if "editing" in state["notes"]:
+            return _finish(state, t)
+        state["step"] = "photos"
+        return [_done_button(t, t["cover_photo_saved"].format(max=MAX_PHOTOS))]
     if state["photos"] >= MAX_PHOTOS:
         return _once(state, "photo_limit", [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))])
     state["photos"] += 1
@@ -210,6 +252,7 @@ def _resend_photos(state):
     state["step"] = "photos"
     state["photos"] = 0
     state["resend_photos"] = True
+    set_cover_photo(state, None)   # the album picks a cover from the new photos
     for note in ("photo_limit", "not_a_photo"):
         if note in state["notes"]:
             state["notes"].remove(note)
@@ -274,11 +317,16 @@ def _design_buttons(t, text):
 
 
 def _edit_buttons(t, text):
-    """The summary's buttons: change the title or the design."""
+    """The summary's buttons: change the title, the design or the cover photo."""
     return {"text": text, "buttons": [
         {"id": "edit_title", "title": t["button_edit_title"]},
         {"id": "edit_design", "title": t["button_edit_design"]},
+        {"id": "edit_cover", "title": t["button_edit_cover"]},
     ]}
+
+
+def _keep_cover_button(t, text):
+    return {"text": text, "buttons": [{"id": "keep_cover", "title": t["button_keep_cover"]}]}
 
 
 def _done_button(t, text):

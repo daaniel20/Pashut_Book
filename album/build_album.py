@@ -12,6 +12,8 @@ Run from the project folder, with the project's Python (.venv):
   Extra options:
     --design classic|colorful   choose the design (default: the order's, or classic)
     --title "החופשה באילת"      a cover title (default: the order's, or none)
+    --cover 012.jpg             the photo for the cover (default: the one the
+                                customer chose, or the first good photo)
     --check                     only check the photos, don't build (the bot uses this)
     --json                      print the result as one line of data (for the bot)
 
@@ -62,11 +64,11 @@ def left_out_reason(result):
     return "blurry"
 
 
-def build(photos, design, title, folder):
+def build(photos, design, title, folder, cover=None):
     """Check, plan and draw an album. photos is a list of (name, bytes)."""
     results = quality.check_all(photos)
     info = summary(results)
-    album = layout.make_album(results, design, title)
+    album = layout.make_album(results, design, title, cover)
     box = render.PhotoBox(photos)
     folder.mkdir(parents=True, exist_ok=True)
     for old in folder.glob("*.jpg"):
@@ -178,9 +180,18 @@ def order_photos(which):
     return order, photos
 
 
+def _chosen_cover(order):
+    """The photo the customer sent for the cover (kept in the order's notes
+    as "cover_photo:N" by the bot), named like the photos from the order."""
+    for note in order.get("notes") or []:
+        if str(note).startswith("cover_photo:"):
+            return f"photo {int(note.split(':')[1]):03d}"
+    return None
+
+
 def main():
     args = sys.argv[1:]
-    options = {"--design": None, "--title": None}
+    options = {"--design": None, "--title": None, "--cover": None}
     flags = set()
     rest = []
     while args:
@@ -197,11 +208,13 @@ def main():
         design = options["--design"] or order.get("design") or "classic"
         title = options["--title"] if options["--title"] is not None else order.get("title")
         folder = OUTPUT_DIR / order["id"][:8]
+        cover = options["--cover"] or _chosen_cover(order)
     elif len(rest) == 1 and not rest[0].startswith("--"):
         photos = photos_from_folder(rest[0])
         design = options["--design"] or "classic"
         title = options["--title"]
         folder = OUTPUT_DIR / Path(rest[0]).expanduser().name
+        cover = options["--cover"]
     else:
         sys.exit(__doc__)
     if design not in designs.DESIGNS:
@@ -212,7 +225,7 @@ def main():
     else:
         print(f"Building a {design} album from {len(photos)} photos…", file=sys.stderr)
         try:
-            info = build(photos, design, title, folder)
+            info = build(photos, design, title, folder, cover)
         except ValueError as error:   # e.g. no usable photos
             info = dict(summary(quality.check_all(photos)), error=str(error))
 

@@ -16,7 +16,7 @@ FONTS_DIR = Path(__file__).resolve().parent / "fonts"
 # ---------- the book ----------
 PAGE_WIDTH = 200    # mm (placeholder until S.2)
 PAGE_HEIGHT = 200   # mm
-MIN_PAGES = 24      # inside pages, without the cover (placeholder until S.2)
+MIN_PAGES = 20      # inside pages, without the cover (placeholder until S.2)
 MAX_PAGES = 40
 PAGE_MULTIPLE = 2   # printers need an even number of pages (some need 4)
 PHOTOS_PER_PAGE = 2.5   # on average, when there are enough photos
