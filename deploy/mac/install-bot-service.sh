@@ -35,7 +35,7 @@ esac
 
 # Check the settings before installing, so a mistake shows up here and not
 # hidden in the log.
-for NAME in WHATSAPP_PHONE_NUMBER_ID WHATSAPP_ACCESS_TOKEN WHATSAPP_APP_SECRET WHATSAPP_VERIFY_TOKEN; do
+for NAME in WHATSAPP_PHONE_NUMBER_ID WHATSAPP_ACCESS_TOKEN WHATSAPP_APP_SECRET WHATSAPP_VERIFY_TOKEN SUPABASE_URL SUPABASE_SECRET_KEY; do
   if ! grep -Eq "^${NAME}=.+" "$PROJECT_DIR/.env" 2>/dev/null; then
     echo "❌ $NAME is missing or empty in $PROJECT_DIR/.env (see the guide, Steps 1–4)."
     exit 1

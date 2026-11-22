@@ -122,9 +122,11 @@ class ConversationTest(unittest.TestCase):
     def test_reading_whatsapp_messages(self):
         read = conversation.read_message
         self.assertEqual(read({"type": "text", "text": {"body": "hi"}}), ("text", "hi"))
-        self.assertEqual(read({"type": "image", "image": {}}), ("photo", None))
-        self.assertEqual(read({"type": "document", "document": {"mime_type": "image/jpeg"}}),
-                         ("photo", None))
+        self.assertEqual(read({"type": "image", "image": {"id": "7", "mime_type": "image/jpeg"}}),
+                         ("photo", {"id": "7", "mime_type": "image/jpeg"}))
+        self.assertEqual(read({"type": "document",
+                               "document": {"id": "8", "mime_type": "image/png"}}),
+                         ("photo", {"id": "8", "mime_type": "image/png"}))
         self.assertEqual(read({"type": "interactive",
                                "interactive": {"button_reply": {"id": "cover_no"}}}),
                          ("button", "cover_no"))

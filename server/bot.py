@@ -2,6 +2,7 @@
 
 Task 1.1: receive WhatsApp messages and reply.
 Task 1.2: the Hebrew conversation with buttons (the steps are in conversation.py).
+Task 1.3: save orders and photos in Supabase (orders.py, database.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -23,23 +24,24 @@ import json
 import logging
 import sys
 import threading
-import urllib.error
-import urllib.request
+import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import conversation
+from database import Database, DatabaseError
+from orders import Orders, save_photo
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
+from whatsapp import WhatsApp, WhatsAppError
 
 # 127.0.0.1 = "this computer only". Only the Cloudflare Tunnel (on the same Mac)
 # can reach it, never other devices on the home Wi-Fi.
 HOST = "127.0.0.1"
 PORT = 8000
 WEBHOOK_PATH = "/webhook"
-# Meta's API version. Each version works for about 2 years.
-DEFAULT_GRAPH_VERSION = "v27.0"
 # Webhook notices are small. Refuse anything bigger (protects the Mac).
 MAX_BODY_BYTES = 1_000_000
 
@@ -56,7 +58,13 @@ REQUIRED = [
     "WHATSAPP_ACCESS_TOKEN",
     "WHATSAPP_APP_SECRET",
     "WHATSAPP_VERIFY_TOKEN",
+    "SUPABASE_URL",
+    "SUPABASE_SECRET_KEY",
 ]
+# How many photos are downloaded and saved at the same time.
+PHOTO_WORKERS = 4
+# If Supabase is down, tell the customer at most once every 10 minutes.
+PROBLEM_NOTICE_SECONDS = 600
 
 env = read_env()
 TEXTS = load_texts("he")
@@ -66,11 +74,12 @@ TEXTS = load_texts("he")
 _seen_ids = deque(maxlen=1000)
 _seen_lock = threading.Lock()
 
-# Each customer's place in the conversation, by phone number.
-# Kept in memory only for now: restarting the bot starts everyone over.
-# (Task 1.3 moves this to Supabase.)
-_states = {}
-_states_lock = threading.Lock()
+# Filled in by main() once the settings are checked.
+whatsapp = None
+db = None
+orders = None
+photo_savers = ThreadPoolExecutor(max_workers=PHOTO_WORKERS)
+_last_problem_notice = {}
 
 PAGE = """<!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -114,43 +123,18 @@ def is_new_message(message_id):
 
 
 def send(to, message):
-    """Send one WhatsApp message (text, or text with up to 3 buttons)."""
-    if message.get("buttons"):
-        payload = {
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": message["text"]},
-                "action": {"buttons": [
-                    {"type": "reply", "reply": button} for button in message["buttons"]
-                ]},
-            },
-        }
-    else:
-        payload = {"type": "text", "text": {"body": message["text"]}}
-    payload.update({"messaging_product": "whatsapp", "to": to})
-
-    version = env.get("WHATSAPP_GRAPH_VERSION") or DEFAULT_GRAPH_VERSION
-    url = f"https://graph.facebook.com/{version}/{env['WHATSAPP_PHONE_NUMBER_ID']}/messages"
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {env['WHATSAPP_ACCESS_TOKEN']}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=20):
-            log.info("Reply sent to %s", mask_phone(to))
-    except urllib.error.HTTPError as error:
-        # Meta's error text explains the problem (e.g. expired token). It never
-        # contains the token itself.
-        detail = error.read().decode("utf-8", "replace")[:500]
-        log.error("Meta refused the reply (error %s): %s", error.code, detail)
-    except urllib.error.URLError as error:
-        log.error("Could not reach Meta: %s", error.reason)
+        whatsapp.send(to, message)
+        log.info("Reply sent to %s", mask_phone(to))
+    except WhatsAppError as error:
+        log.error("Could not send a reply: %s", error)
+
+
+def save_photo_safely(order_id, number, media):
+    try:
+        save_photo(db, whatsapp, order_id, number, media)
+    except Exception:
+        log.exception("Something went wrong while saving a photo")
 
 
 def handle_notice(data):
@@ -165,17 +149,30 @@ def handle_notice(data):
                 if not sender or not message_id or not is_new_message(message_id):
                     continue
                 kind, value = conversation.read_message(message)
+                # We log only the message type, never texts or photos.
+                log.info("Got a %s message from %s", message.get("type"), mask_phone(sender))
                 # Many photos arrive at once, each in its own notice. The lock lets
-                # one at a time update the customer's state, so the count is right.
-                with _states_lock:
-                    state = _states.setdefault(sender, conversation.new_state())
-                    replies = conversation.answer(state, kind, value, TEXTS)
-                    step = state["step"]
-                # We log only the message type and step, never texts or photos.
-                log.info("Got a %s message from %s (now at step: %s)",
-                         message.get("type"), mask_phone(sender), step)
+                # one at a time update this customer's order, so the count is right.
+                with orders.lock_for(sender):
+                    try:
+                        replies, photo = orders.answer(sender, kind, value, TEXTS)
+                    except DatabaseError as error:
+                        log.error("Supabase problem: %s", error)
+                        replies, photo = problem_notice(sender), None
+                if photo:
+                    order_id, number = photo
+                    photo_savers.submit(save_photo_safely, order_id, number, value)
                 for reply in replies:
                     send(sender, reply)
+
+
+def problem_notice(sender):
+    """A short "technical problem, try again soon" message, not too often."""
+    now = time.monotonic()
+    if now - _last_problem_notice.get(sender, -PROBLEM_NOTICE_SECONDS) < PROBLEM_NOTICE_SECONDS:
+        return []
+    _last_problem_notice[sender] = now
+    return [{"text": TEXTS["technical_problem"]}]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -253,9 +250,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global whatsapp, db, orders
     missing = [name for name in REQUIRED if not env.get(name)]
     if missing:
         sys.exit(f"❌ Missing in {ENV_FILE}: {', '.join(missing)}. See docs/setup/1.1-first-bot.md")
+    whatsapp = WhatsApp(env)
+    db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
+    orders = Orders(db)
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
