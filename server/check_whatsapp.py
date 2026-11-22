@@ -4,6 +4,10 @@ Run from the project folder:  python3 server/check_whatsapp.py
 It checks that the access token works, that the phone number ID is right,
 and that our app is connected to the WhatsApp account (so Meta sends us
 messages). It (re)connects the app every time, which is safe.
+It also shows where Meta sends the number's messages.
+
+To point the number's messages at our bot (if they go somewhere else):
+    python3 server/check_whatsapp.py --fix
 It never prints the token.
 """
 
@@ -15,13 +19,16 @@ import urllib.request
 from settings import ENV_FILE, read_env
 
 DEFAULT_GRAPH_VERSION = "v27.0"
+BOT_WEBHOOK_URL = "https://bot.pashutbook.com/webhook"
 
 
-def call(env, method, path):
+def call(env, method, path, payload=None):
     version = env.get("WHATSAPP_GRAPH_VERSION") or DEFAULT_GRAPH_VERSION
     request = urllib.request.Request(
         f"https://graph.facebook.com/{version}/{path}",
-        headers={"Authorization": f"Bearer {env['WHATSAPP_ACCESS_TOKEN']}"},
+        headers={"Authorization": f"Bearer {env['WHATSAPP_ACCESS_TOKEN']}",
+                 "Content-Type": "application/json"},
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
         method=method,
     )
     try:
@@ -67,6 +74,30 @@ def main():
     print(f"✅ Apps that get this account's messages: {', '.join(names) or 'none'}")
     if len(apps) > 1:
         print("⚠️  More than one app is connected. Tell Claude the names above.")
+
+    # Where do the number's messages go? A "phone_number" address wins over
+    # the account's and the app's. Meta's "Check test webhooks" panel can set
+    # one, which steals real messages from our bot.
+    phone_id = env["WHATSAPP_PHONE_NUMBER_ID"]
+    route = call(env, "GET", f"{phone_id}?fields=webhook_configuration")
+    route = route.get("webhook_configuration", {})
+    target = (route.get("phone_number") or route.get("whatsapp_business_account")
+              or route.get("application") or "(nowhere)")
+    if target == BOT_WEBHOOK_URL:
+        print(f"✅ Messages to this number go to our bot: {target}")
+        return
+    print(f"⚠️  Messages to this number go to: {target}")
+    print(f"    They should go to: {BOT_WEBHOOK_URL}")
+    if "--fix" not in sys.argv:
+        print("    To fix it, run:  python3 server/check_whatsapp.py --fix")
+        return
+    # Meta checks the new address with our verify token before saving it.
+    call(env, "POST", phone_id, {"webhook_configuration": {
+        "override_callback_uri": BOT_WEBHOOK_URL,
+        "verify_token": env["WHATSAPP_VERIFY_TOKEN"],
+    }})
+    route = call(env, "GET", f"{phone_id}?fields=webhook_configuration")
+    print(f"✅ Fixed. Messages now go to: {route.get('webhook_configuration', {}).get('phone_number')}")
 
 
 if __name__ == "__main__":
