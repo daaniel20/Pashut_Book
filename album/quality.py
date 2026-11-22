@@ -18,6 +18,8 @@ or Supabase, so the album builder can use it with photos from anywhere.
 Needs Pillow (a common Python library for images): see requirements.txt.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
@@ -56,6 +58,7 @@ class PhotoCheck:
     height: int = 0
     sharpness: float = 0.0
     taken: datetime | None = None   # from the photo's own data, when it has it
+    has_location: bool = False      # GPS still in the photo? (yes/no only; we never keep where)
     fingerprint: int = 0
     grade: str = "ok"
     problems: list = field(default_factory=list)  # short codes, see PROBLEM_TEXT
@@ -84,6 +87,7 @@ def check_photo(name, data):
     try:
         image = Image.open(BytesIO(data))
         result.taken = _date_taken(image)
+        result.has_location = _has_location(image)
         image = ImageOps.exif_transpose(image)  # turn it the right way up
         image.load()
     except Exception:
@@ -205,3 +209,13 @@ def _date_taken(image):
         return datetime.strptime(str(value).strip("\x00 "), "%Y:%m:%d %H:%M:%S") if value else None
     except Exception:
         return None
+
+
+def _has_location(image):
+    """True if the photo still holds a GPS location. Only says yes or no: the
+    place itself is never read out or saved (photos of children are private)."""
+    try:
+        gps = image.getexif().get_ifd(0x8825)  # the GPS part of the photo's data
+        return 2 in gps and 4 in gps           # has a latitude and a longitude
+    except Exception:
+        return False
