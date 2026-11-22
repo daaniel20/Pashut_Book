@@ -1,4 +1,7 @@
-"""The Pashut Book WhatsApp bot (task 1.1: answers every message with "Hello").
+"""The Pashut Book WhatsApp bot.
+
+Task 1.1: receive WhatsApp messages and reply.
+Task 1.2: the Hebrew conversation with buttons (the steps are in conversation.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -27,6 +30,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import conversation
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
 
 # 127.0.0.1 = "this computer only". Only the Cloudflare Tunnel (on the same Mac)
@@ -61,6 +65,12 @@ TEXTS = load_texts("he")
 # so the customer gets one reply, not two.
 _seen_ids = deque(maxlen=1000)
 _seen_lock = threading.Lock()
+
+# Each customer's place in the conversation, by phone number.
+# Kept in memory only for now: restarting the bot starts everyone over.
+# (Task 1.3 moves this to Supabase.)
+_states = {}
+_states_lock = threading.Lock()
 
 PAGE = """<!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -103,16 +113,25 @@ def is_new_message(message_id):
         return True
 
 
-def send_text(to, text):
-    """Send a WhatsApp text message through Meta's API."""
+def send(to, message):
+    """Send one WhatsApp message (text, or text with up to 3 buttons)."""
+    if message.get("buttons"):
+        payload = {
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": message["text"]},
+                "action": {"buttons": [
+                    {"type": "reply", "reply": button} for button in message["buttons"]
+                ]},
+            },
+        }
+    else:
+        payload = {"type": "text", "text": {"body": message["text"]}}
+    payload.update({"messaging_product": "whatsapp", "to": to})
+
     version = env.get("WHATSAPP_GRAPH_VERSION") or DEFAULT_GRAPH_VERSION
     url = f"https://graph.facebook.com/{version}/{env['WHATSAPP_PHONE_NUMBER_ID']}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": text},
-    }
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -145,9 +164,18 @@ def handle_notice(data):
                 message_id = message.get("id")
                 if not sender or not message_id or not is_new_message(message_id):
                     continue
-                # We log only the message type, never its text or photos.
-                log.info("Got a %s message from %s", message.get("type"), mask_phone(sender))
-                send_text(sender, TEXTS["hello"])
+                kind, value = conversation.read_message(message)
+                # Many photos arrive at once, each in its own notice. The lock lets
+                # one at a time update the customer's state, so the count is right.
+                with _states_lock:
+                    state = _states.setdefault(sender, conversation.new_state())
+                    replies = conversation.answer(state, kind, value, TEXTS)
+                    step = state["step"]
+                # We log only the message type and step, never texts or photos.
+                log.info("Got a %s message from %s (now at step: %s)",
+                         message.get("type"), mask_phone(sender), step)
+                for reply in replies:
+                    send(sender, reply)
 
 
 class Handler(BaseHTTPRequestHandler):
