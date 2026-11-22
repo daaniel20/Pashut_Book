@@ -10,9 +10,10 @@ Needs Pillow (see requirements.txt).
 
 from io import BytesIO
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
 
 import designs
+import layout
 
 try:
     from pillow_heif import register_heif_opener   # iPhone photos (HEIC)
@@ -46,8 +47,9 @@ def draw_page(page, album, photos, pixels_per_mm):
     size = (round(album.width * pixels_per_mm), round(album.height * pixels_per_mm))
     image = Image.new("RGB", size, page.background)
     for spot in page.spots:
+        # A photo from edge to edge (full page, cover) has no frame or rounded corners.
         _draw_photo(image, spot, photos, style, pixels_per_mm,
-                    framed=page.template != "full")
+                    framed=spot.x > 0 or spot.y > 0)
     if page.template == "cover" and album.title:
         _draw_title(image, album, style, pixels_per_mm)
     return image
@@ -72,12 +74,27 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
     image.paste(photo, (x, y), mask)
 
 
+# The band behind the cover title, over the photo: how solid it is (0-255).
+BAND_OPACITY = 215
+
+
 def _draw_title(image, album, style, ppm):
-    """The cover title, in the space under the cover photo."""
+    """The cover title: on a soft band over the photo (top or bottom, where
+    there are no faces), or in the space under a smaller photo."""
     photo_spot = album.cover.spots[0]
-    top = (photo_spot.y + photo_spot.height) * ppm
-    bottom = (album.height - photo_spot.y) * ppm
-    left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
+    if album.title_place in ("top", "bottom"):
+        band = layout.TITLE_BAND * album.height * ppm
+        top = 0 if album.title_place == "top" else image.height - band
+        bottom = top + band
+        left, right = style["margin"] * ppm, image.width - style["margin"] * ppm
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        colour = ImageColor.getrgb(style["cover_background"]) + (BAND_OPACITY,)
+        ImageDraw.Draw(overlay).rectangle((0, top, image.width, bottom), fill=colour)
+        image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
+    else:
+        top = (photo_spot.y + photo_spot.height) * ppm
+        bottom = (album.height - photo_spot.y) * ppm
+        left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
     box_w, box_h = right - left, bottom - top
     lines, font = _fit_text(album.title, style, box_w, box_h * 0.8)
     draw = ImageDraw.Draw(image)
