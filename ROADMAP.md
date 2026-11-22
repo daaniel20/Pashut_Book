@@ -41,7 +41,7 @@ gantt
     Real business number              :b0d, 2026-11-30, 5d
 
     section 🛠️ Build: Stage 1
-    First "Hello" bot                 :b1a, after b0c, 3d
+    First "Hello" bot                 :done, b1a, after b0c, 3d
     Hebrew flow + design buttons      :b1b, after b1a, 4d
     Collect + store photos            :b1c, after b1b, 4d
 
@@ -92,7 +92,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 1.1 | **First bot:** the Mac receives WhatsApp messages and answers "Hello!" Guide: [docs/setup/1.1-first-bot.md](docs/setup/1.1-first-bot.md) | 🤝 | You write to the bot and get an automatic reply |
+| 1.1 ✅ | **First bot:** the Mac receives WhatsApp messages and answers "Hello!" Guide: [docs/setup/1.1-first-bot.md](docs/setup/1.1-first-bot.md) | 🤝 | You write to the bot and get an automatic reply. ✅ Done Nov 22, 2026: the test number answers automatically (the app had to be **published** first) |
 | 1.2 | **Hebrew conversation + design buttons:** welcome → choose design → HD instructions → send photos → cover title | 🤝 | You can walk through the whole conversation |
 | 1.3 | **Collect and store photos:** save each one in Supabase, count them, enforce the limit | 🤝 | 60 photos sent → "Got 60 photos 👍", all saved |
 
