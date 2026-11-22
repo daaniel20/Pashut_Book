@@ -23,8 +23,21 @@ class WhatsApp:
         self.token = env["WHATSAPP_ACCESS_TOKEN"]
 
     def send(self, to, message):
-        """Send one WhatsApp message (text, or text with up to 3 buttons)."""
-        if message.get("buttons"):
+        """Send one WhatsApp message: text, text with up to 3 buttons,
+        or text with a list (one button that opens up to 10 choices)."""
+        if message.get("list"):
+            menu = message["list"]
+            payload = {
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "body": {"text": message["text"]},
+                    "action": {"button": menu["button"], "sections": [
+                        {"title": menu["title"], "rows": menu["rows"]}
+                    ]},
+                },
+            }
+        elif message.get("buttons"):
             payload = {
                 "type": "interactive",
                 "interactive": {

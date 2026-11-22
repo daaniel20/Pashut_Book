@@ -22,6 +22,12 @@ def show(replies):
     global buttons
     for reply in replies:
         print("\n🤖 " + reply["text"].replace("\n", "\n   "))
+        if reply.get("list"):
+            # In WhatsApp this is one button that opens a list.
+            print(f"   ☰ {reply['list']['button']} (opens a list):")
+            buttons = reply["list"]["rows"]
+            for number, button in enumerate(buttons, start=1):
+                print(f"   [{number}] {button['title']}")
         if reply.get("buttons"):
             buttons = reply["buttons"]
             for number, button in enumerate(buttons, start=1):

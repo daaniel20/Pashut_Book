@@ -22,6 +22,18 @@ PHONE = "972500000000"
 orders.DELETE_DELAY_SECONDS = 0
 
 
+# Most checks here are about other steps and send only a few photos, so the
+# "only N photos, add more?" question (FewPhotosTest) is turned down for them.
+def setUpModule():
+    global _real_few
+    _real_few = orders.conversation.FEW_PHOTOS
+    orders.conversation.FEW_PHOTOS = 2
+
+
+def tearDownModule():
+    orders.conversation.FEW_PHOTOS = _real_few
+
+
 class FakeDatabase:
     def __init__(self):
         self.orders = []   # oldest first
