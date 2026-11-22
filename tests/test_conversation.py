@@ -20,7 +20,9 @@ def talk(state, kind, value=None):
 
 
 def button_ids(message):
-    return [button["id"] for button in message.get("buttons", [])]
+    """The IDs of a message's buttons, or of its list's choices."""
+    rows = message["list"]["rows"] if "list" in message else message.get("buttons", [])
+    return [row["id"] for row in rows]
 
 
 class ConversationTest(unittest.TestCase):
@@ -45,7 +47,7 @@ class ConversationTest(unittest.TestCase):
 
         replies = talk(state, "button", "photos_done")
         self.assertIn("60", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["cover_yes", "cover_no"])
+        self.assertEqual(button_ids(replies[0]), ["cover_yes", "cover_no", "add_photos"])
 
         talk(state, "button", "cover_yes")
         self.assertEqual(state["step"], "title")
@@ -125,6 +127,66 @@ class ConversationTest(unittest.TestCase):
         talk(state, "button", title_button)
         return state
 
+    def test_done_too_early_then_add_photos(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")                      # the cover photo
+        talk(state, "button", "photos_done")      # tapped too early
+        self.assertEqual(state["step"], "cover")
+        replies = talk(state, "button", "add_photos")
+        self.assertEqual(state["step"], "photos")
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        for _ in range(5):
+            talk(state, "photo")
+        replies = talk(state, "button", "photos_done")
+        self.assertEqual(state["step"], "cover")  # the title question comes again
+        self.assertIn("6", replies[0]["text"])
+
+    def test_add_photos_from_the_title_step(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_yes")
+        talk(state, "button", "add_photos")
+        self.assertEqual(state["step"], "photos")
+        talk(state, "photo")
+        talk(state, "button", "photos_done")
+        self.assertEqual(state["step"], "cover")
+
+    def test_add_photos_from_the_summary(self):
+        state = self.finished_order()
+        replies = talk(state, "button", "add_photos")
+        self.assertEqual(state["step"], "photos")
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        talk(state, "photo")
+        talk(state, "photo")
+        replies = talk(state, "button", "photos_done")
+        self.assertEqual(state["step"], "done")   # straight to a new summary
+        self.assertEqual(state["photos"], 3)
+        self.assertIn("3", replies[0]["text"])
+
+    def test_typing_change_something_shows_the_list(self):
+        state = self.finished_order()
+        replies = talk(state, "text", TEXTS["button_edit"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
+
+    def test_change_list_fits_whatsapp(self):
+        # WhatsApp: the list's button up to 20 characters, each choice up to 24.
+        self.assertLessEqual(len(TEXTS["button_edit"]), 20)
+        self.assertLessEqual(len(TEXTS["edit_list_title"]), 24)
+        for key in ["button_edit_title", "button_edit_design", "button_edit_cover",
+                    "button_add_photos"]:
+            self.assertLessEqual(len(TEXTS[key]), 24, key)
+        self.assertLessEqual(len(TEXTS["button_add_photos"]), 20)  # also a button
+
+    def test_reading_a_list_choice(self):
+        message = {"type": "interactive",
+                   "interactive": {"type": "list_reply", "list_reply": {"id": "add_photos"}}}
+        self.assertEqual(conversation.read_message(message), ("button", "add_photos"))
+
     def test_summary_has_change_buttons(self):
         state = conversation.new_state()
         talk(state, "text", "שלום")
@@ -132,7 +194,7 @@ class ConversationTest(unittest.TestCase):
         talk(state, "photo")
         talk(state, "button", "photos_done")
         replies = talk(state, "button", "cover_no")
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
 
     def test_change_the_cover_photo(self):
         state = self.finished_order()
@@ -144,7 +206,7 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "done")
         self.assertEqual(state["photos"], count + 1)              # also goes inside
         self.assertEqual(conversation.cover_photo(state), count + 1)
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
 
     def test_keep_the_cover_photo(self):
         state = self.finished_order()
@@ -168,7 +230,7 @@ class ConversationTest(unittest.TestCase):
         state = self.finished_order()
         replies = talk(state, "button", "edit_title")
         self.assertEqual(state["step"], "title")
-        self.assertEqual(button_ids(replies[0]), ["cover_no"])
+        self.assertEqual(button_ids(replies[0]), ["cover_no", "add_photos"])
         replies = talk(state, "text", "יום הולדת לסבתא")
         self.assertEqual(state["step"], "done")
         self.assertEqual(state["title"], "יום הולדת לסבתא")
@@ -197,7 +259,7 @@ class ConversationTest(unittest.TestCase):
     def test_text_after_done_offers_the_change_buttons(self):
         state = self.finished_order()
         replies = talk(state, "text", "תודה")
-        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover"])
+        self.assertEqual(button_ids(replies[0]), ["edit_title", "edit_design", "edit_cover", "add_photos"])
 
     def test_button_titles_fit_whatsapp(self):
         # WhatsApp refuses button titles longer than 20 characters.
