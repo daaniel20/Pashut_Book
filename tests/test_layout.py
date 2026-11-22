@@ -228,6 +228,21 @@ class CoverTest(unittest.TestCase):
         self.assertEqual(album.title_place, "below")
         self.assertGreater(album.cover.spots[0].x, 0)
 
+    def test_duplicate_never_blocks_the_cover(self):
+        # The owner's test: the new cover photo was also inside the album.
+        photos = fake_photos(20)
+        same = SimpleNamespace(name="044", width=3000, height=3000, grade="skip",
+                               problems=["duplicate"], duplicate_of="007")
+        album = layout.make_album(photos + [same], "classic", "x", cover="044")
+        self.assertEqual(album.cover.spots[0].photo, "007")    # the same picture
+        self.assertEqual(album.notes, [])
+        burst = SimpleNamespace(name="045", width=3000, height=3000, grade="skip",
+                                problems=["similar"], duplicate_of="007", faces=[])
+        album = layout.make_album(photos + [burst], "classic", "x", cover="045")
+        self.assertEqual(album.cover.spots[0].photo, "045")    # their chosen shot
+        self.assertNotIn("045", placed(album))                 # not twice inside
+        self.assertEqual(album.notes, [])
+
     def test_blurry_cover_choice_falls_back_and_tells_the_owner(self):
         photos = fake_photos(20, skip={3})
         album = layout.make_album(photos, "classic", None, cover="003")
