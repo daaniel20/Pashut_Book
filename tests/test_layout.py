@@ -105,6 +105,80 @@ class LayoutTest(unittest.TestCase):
             layout.make_album(fake_photos(3, skip={1, 2, 3}), "classic")
 
 
+def photo(name, size, faces=(), grade="ok"):
+    return SimpleNamespace(name=name, width=size[0], height=size[1], grade=grade,
+                           faces=list(faces))
+
+
+UPRIGHT, WIDE = (1536, 2048), (2048, 1536)
+
+
+class FacesTest(unittest.TestCase):
+    """Task 2.2 feedback: no cut faces, people or raised hands."""
+
+    def shown(self, album, name):
+        """(spot, crop) of a photo in the album."""
+        return next((spot, spot.crop) for page in album.pages
+                    for spot in page.spots if spot.photo == name)
+
+    def assert_faces_kept(self, album, photos):
+        for p in photos:
+            spot, (cx, cy, cw, ch) = self.shown(album, p.name)
+            for x, y, w, h in p.faces:
+                self.assertGreaterEqual(x, cx - 1e-6, p.name)
+                self.assertLessEqual(x + w, cx + cw + 1e-6, p.name)
+                self.assertGreaterEqual(y, cy - 1e-6, p.name)
+                self.assertLessEqual(y + h, cy + ch + 1e-6, p.name)
+
+    def test_upright_photo_next_to_a_wide_one(self):
+        # Page 4: an upright photo of a child was squeezed into a wide spot.
+        photos = [photo("family", WIDE, [(0.3, 0.3, 0.1, 0.13), (0.5, 0.35, 0.08, 0.1)]),
+                  photo("child", UPRIGHT, [(0.4, 0.12, 0.2, 0.15)])]
+        name, order = layout._best_template(photos, [], False, designs.DESIGNS["colorful"])
+        page = layout._page(name, order, "", designs.DESIGNS["colorful"])
+        spot = next(s for s in page.spots if s.photo == "child")
+        self.assertLess(spot.width / spot.height, 1)        # an upright spot
+        self.assertGreater(spot.crop[3], 0.74)              # most of the photo shown
+
+    def test_person_at_the_edge_is_not_cut(self):
+        # Page 7 / 19: people from edge to edge of an upright photo.
+        group = photo("group", UPRIGHT, [(0.02, 0.3, 0.12, 0.09), (0.45, 0.32, 0.1, 0.08),
+                                         (0.85, 0.28, 0.12, 0.09)])
+        # Cutting the sides would cut people: show the whole photo instead.
+        self.assertIsNone(layout._cut(group, 0.58))
+        # A photo with people loses at most a little (here 25% would be too much).
+        self.assertIsNone(layout._cut(group, 1.0))
+        self.assertEqual(layout._cut(group, 0.8)[2], 1)   # a slight trim top/bottom is fine
+        album = layout.make_album([photo(f"{n:02d}", UPRIGHT) for n in range(20)] + [group],
+                                  "colorful")
+        self.assert_faces_kept(album, [group])
+
+    def test_raised_hand_is_kept(self):
+        # Page 23: a wide photo in a wider spot, a hand raised above the head.
+        dad = photo("dad", WIDE, [(0.45, 0.35, 0.06, 0.08)])
+        x, y, w, h = layout._cut(dad, 1.5)
+        self.assertLessEqual(y, 0.35 - 0.08)                 # a head's height above the face is in
+        self.assertLess(y, (1 - h) / 2)                      # cut more from the bottom
+
+    def test_whole_albums_keep_every_face(self):
+        rng = random.Random(3)
+        photos = []
+        for n in range(60):
+            size = rng.choice([UPRIGHT, WIDE, (3000, 3000)])
+            faces = [(rng.uniform(0, 0.85), rng.uniform(0, 0.8), 0.1, 0.12)
+                     for _ in range(rng.randrange(0, 4))]
+            photos.append(photo(f"{n:03d}", size, faces))
+        for design in designs.DESIGNS:
+            album = layout.make_album(photos, design)
+            self.assert_faces_kept(album, photos)
+            faces = {p.name: p.faces for p in photos}
+            for page in album.pages:
+                for spot in page.spots:
+                    cut_off = 1 - spot.crop[2] * spot.crop[3]
+                    limit = layout.MAX_CUT_PEOPLE if faces[spot.photo] else layout.MAX_CUT
+                    self.assertLessEqual(cut_off, limit + 1e-6)
+
+
 @unittest.skipIf(Image is None, "Pillow is not installed")
 class DrawingTest(unittest.TestCase):
     def test_hebrew_title_order(self):

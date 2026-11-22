@@ -6,6 +6,8 @@ For each photo it finds:
 - whether it's a duplicate of another photo (the same photo twice, or an almost
   identical shot taken a second later). The best copy is kept.
 - the date it was taken, if the photo still has it, to sort the album by date
+- where the faces are (task 2.2), so the album never cuts a face off.
+  Uses OpenCV's free face finder; without OpenCV it simply finds no faces.
 
 Each photo gets a grade:
   "ok"     use it anywhere
@@ -23,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
+
+from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
@@ -54,6 +58,11 @@ SIMILAR_UNDER = 11        # almost the same shot (e.g. 3 photos taken in a row)
 
 ANALYSIS_SIZE = 1024      # photos are shrunk to this size for the checks (faster)
 
+# Face finder: OpenCV's "YuNet" model (a small free file, MIT licence, in album/models).
+FACE_MODEL = Path(__file__).resolve().parent / "models" / "face_detection_yunet_2023mar.onnx"
+FACE_SIZE = 960           # photos are shrunk to this size to look for faces
+FACE_SURE = 0.75          # how sure the finder must be that it's a face (0-1)
+
 
 @dataclass
 class PhotoCheck:
@@ -64,6 +73,7 @@ class PhotoCheck:
     taken: datetime | None = None   # from the photo's own data, when it has it
     has_location: bool = False      # GPS still in the photo? (yes/no only; we never keep where)
     fingerprint: int = 0
+    faces: list = field(default_factory=list)   # (x, y, width, height), as parts of the photo
     grade: str = "ok"
     problems: list = field(default_factory=list)  # short codes, see PROBLEM_TEXT
     duplicate_of: str | None = None
@@ -104,6 +114,7 @@ def check_photo(name, data):
     gray.thumbnail((ANALYSIS_SIZE, ANALYSIS_SIZE))
     result.sharpness = round(_sharpness(gray), 1)
     result.fingerprint = _fingerprint(gray)
+    result.faces = find_faces(image)
 
     if result.long_side < MIN_PIXELS:
         result.problems.append("too_small")
@@ -159,6 +170,49 @@ def _sharpness(gray):
             tiles.append(ImageStat.Stat(edges.crop(box)).var[0])
     best = sorted(tiles, reverse=True)[:3]
     return sum(best) / len(best)
+
+
+def find_faces(image):
+    """Where the faces are: a list of (x, y, width, height), each from 0 to 1
+    (parts of the photo's width and height). Only positions; nothing else is
+    read or kept. Empty if OpenCV isn't installed."""
+    detector = _face_detector()
+    if detector is None:
+        return []
+    try:
+        import numpy
+        small = image.convert("RGB")
+        small.thumbnail((FACE_SIZE, FACE_SIZE))
+        bgr = numpy.ascontiguousarray(numpy.asarray(small)[:, :, ::-1])  # OpenCV's colour order
+        detector.setInputSize(small.size)
+        _, found = detector.detect(bgr)
+    except Exception:
+        return []
+    width, height = small.size
+    faces = []
+    for face in (found if found is not None else []):
+        x, y, w, h = (float(v) for v in face[:4])
+        x, y = max(0.0, x), max(0.0, y)
+        w, h = min(w, width - x), min(h, height - y)
+        if w > 0 and h > 0:
+            faces.append((round(x / width, 4), round(y / height, 4),
+                          round(w / width, 4), round(h / height, 4)))
+    return faces
+
+
+_detector = []
+
+
+def _face_detector():
+    """Load the face finder once (None if OpenCV or the model file is missing)."""
+    if not _detector:
+        try:
+            import cv2
+            _detector.append(cv2.FaceDetectorYN.create(str(FACE_MODEL), "", (320, 320),
+                                                       FACE_SURE, 0.3, 50))
+        except Exception:
+            _detector.append(None)
+    return _detector[0]
 
 
 def _fingerprint(gray):

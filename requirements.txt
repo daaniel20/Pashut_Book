@@ -2,3 +2,4 @@
 # The WhatsApp bot itself (server/) still uses only Python's built-in tools.
 Pillow>=11        # opens and checks photos (album builder)
 pillow-heif>=0.18 # lets Pillow open iPhone photos (HEIC)
+opencv-python-headless>=4.8  # finds faces, so the album never cuts a face off (task 2.2)
