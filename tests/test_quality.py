@@ -35,11 +35,13 @@ def make_photo(seed, size=(2400, 1800)):
     return image
 
 
-def to_bytes(image, date=None):
+def to_bytes(image, date=None, gps=False):
     buffer = BytesIO()
     exif = Image.Exif()
     if date:
         exif.get_ifd(0x8769)[36867] = date
+    if gps:  # a made-up place: latitude + longitude
+        exif.get_ifd(0x8825).update({1: "N", 2: (32.0, 5.0, 0.0), 3: "E", 4: (34.0, 46.0, 0.0)})
     image.save(buffer, "JPEG", quality=85, exif=exif)
     return buffer.getvalue()
 
@@ -94,6 +96,12 @@ class QualityTest(unittest.TestCase):
         ])
         self.assertEqual([r.name for r in results], ["january", "march", "no date"])
         self.assertEqual(results[0].taken.month, 1)
+
+    def test_location_yes_or_no(self):
+        with_gps = quality.check_photo("a", to_bytes(make_photo(9), gps=True))
+        without = quality.check_photo("b", to_bytes(make_photo(9)))
+        self.assertTrue(with_gps.has_location)
+        self.assertFalse(without.has_location)
 
 
 if __name__ == "__main__":

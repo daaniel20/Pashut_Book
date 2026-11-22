@@ -76,6 +76,8 @@ def print_results(results):
           f"{counts['skip']} leave out.")
     print(f"{dated} have the date they were taken"
           + (" (sorted by it)." if dated else " (kept in the order received)."))
+    located = sum(r.has_location for r in results)
+    print(f"{located} still have a GPS location (only counted, never saved).")
 
 
 def write_report(results, photos):
@@ -91,7 +93,8 @@ def write_report(results, photos):
   <b>{html.escape(r.name)}</b><br>
   {GRADE_TEXT[r.grade]}<br>
   <small>{r.width}×{r.height} · sharpness {r.sharpness}
-  {(' · ' + r.taken.strftime('%d/%m/%Y')) if r.taken else ''}</small><br>
+  <br>{('📅 ' + r.taken.strftime('%d/%m/%Y')) if r.taken else 'no date'}
+  · {'📍 has location' if r.has_location else 'no location'}</small><br>
   <span class="problems">{problems}</span>
 </div>""")
     REPORT.parent.mkdir(exist_ok=True)
@@ -107,6 +110,9 @@ def write_report(results, photos):
 </style></head><body>
 <h2>Photo quality check: {len(results)} photos, in album order</h2>
 <p>Green = ok · Yellow = small spots only · Red = leave out</p>
+<p>{sum(r.taken is not None for r in results)} of {len(results)} still have the date taken ·
+{sum(r.has_location for r in results)} of {len(results)} still have a GPS location
+(only checked yes/no; the place is never read or saved)</p>
 {''.join(cards)}
 </body></html>""", encoding="utf-8")
 
