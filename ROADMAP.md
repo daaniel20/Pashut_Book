@@ -66,7 +66,7 @@ gantt
 |---|---|---|---|---|
 | S.1 | Decide the **price, photo limit** (50 or 100), and **free changes** per album. Use the [ROI calculator (Google Sheet)](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit). | 🙋 + 🤝 | Week 1 | Decisions written in README.md |
 | S.2 | **Printer quote:** call or email 3 local printers about price, sizes, paper, PDF specifications, delivery time, and shipping | 🙋 | Weeks 1–2 | One printer chosen, with their file specifications |
-| S.3 | **2 templates ready** (Classic / Colorful) in the printer's page size. Used by hand now; the bot will copy the same look later. | 🙋 + 🤝 | Weeks 1–2 | Sample pages look good |
+| S.3 | **2 templates ready** (Classic / Colorful) in the printer's page size. Used by hand now; the bot copies the same look (only `album/designs.py` changes). Also: (1) make the 2 designs **clearly different** (e.g. calm and elegant vs. bright and playful; the first versions felt too basic and too similar); (2) a **sample picture** of the same page in both designs, side by side, sent by the bot before the design buttons; (3) a **full example album** for each design on pashutbook.com (free hosting, e.g. Cloudflare Pages; free stock photos with a business licence, **never** family or customer photos), opened from a **link button** in the bot. The same pages can go on the landing page (needed for 0.4) and in ads. | 🙋 + 🤝 | Weeks 1–2 | Sample pages look good, and a customer can see both designs before choosing |
 | S.4 | **Test album** printed from **WhatsApp HD photos**, including some full-page photos | 🙋 | Weeks 1–2 | You know whether HD photos print well enough at full-page size |
 | S.5 | **Set the fixed date** for the first paying strangers, and replace [DATE] in README.md and here | 🙋 | Week 2 | The date is written down |
 | S.6 | **Tracking sheet:** for every album, owner minutes spent, number of revision requests, price paid, and how the customer found us | 🤝 | Week 2 | The sheet is ready before the first album |
@@ -120,7 +120,7 @@ A payment company, automatic changes, order tracking, more languages (each with 
 
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
-- **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3.
+- **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3 (see S.3 for the sample picture and example albums).
 - Letting customers rearrange photos themselves was considered and **rejected**: too hard in WhatsApp. They can ask for a simple change after the preview instead.
 
 ---
