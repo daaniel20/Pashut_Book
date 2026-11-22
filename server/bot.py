@@ -163,9 +163,6 @@ def handle_notice(data):
                     except DatabaseError as error:
                         log.error("Supabase problem: %s", error)
                         replies, photo = problem_notice(sender), None
-                    if photo:
-                        # Counted inside the lock, so a "done" right after it waits for it.
-                        orders.photo_saving(photo[0])
                 if photo:
                     order_id, number = photo
                     photo_savers.submit(save_photo_safely, order_id, number, value)

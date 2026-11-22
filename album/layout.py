@@ -109,10 +109,10 @@ def make_album(photos, design, title=None, cover=None):
     if not usable:
         raise ValueError("No usable photos")
 
-    chosen = next((p for p in usable if p.name == cover), None)
+    chosen = _cover_choice(photos, cover)
     if cover and chosen is None:
         album.notes.append(f"The customer's cover photo ({cover}) can't be used "
-                           "(blurry, too small or a duplicate): another photo was chosen.")
+                           "(blurry or too small): another photo was chosen.")
     album.cover, album.title_place = _cover(usable, style, title, chosen)
     sizes = plan_pages(usable, style)
     recent = []   # templates of the last pages, for variety
@@ -134,6 +134,24 @@ def make_album(photos, design, title=None, cover=None):
                            f"{len(album.pages)} pages, fewer than the minimum "
                            f"({designs.MIN_PAGES}).")
     return album
+
+
+def _cover_choice(photos, cover):
+    """The photo to put on the cover for the customer's choice, or None if it
+    can't be used. Being a duplicate never blocks the cover (the owner's test:
+    a new cover photo was also inside the album, so it was marked "duplicate")."""
+    chosen = next((p for p in photos if p.name == cover), None)
+    if chosen is None or chosen.grade != "skip":
+        return chosen
+    problems = set(getattr(chosen, "problems", []))
+    if "duplicate" in problems:
+        # Exactly the same photo twice: use the copy that was kept (same picture).
+        kept = next((p for p in photos if p.name == getattr(chosen, "duplicate_of", None)), None)
+        if kept is not None and kept.grade != "skip":
+            return kept
+    if problems and problems <= {"similar", "duplicate"}:
+        return chosen   # an almost-identical shot: they chose this one, so use it
+    return None
 
 
 def page_count(count):

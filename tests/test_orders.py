@@ -211,8 +211,9 @@ class AlbumReadyTest(unittest.TestCase):
 
     def say(self, kind, value=None):
         replies, job = self.orders.answer(PHONE, kind, value, TEXTS)
-        if job:
+        if job:   # like bot.py: save the photo, then say it's done
             orders.save_photo(self.db, FakeWhatsApp(), job[0], job[1], value)
+            self.orders.photo_done(job[0])
         return replies
 
     def finish(self, first=1, count=3):
@@ -256,6 +257,23 @@ class AlbumReadyTest(unittest.TestCase):
         self.say("text", "אלבום חדש")
         self.assertFalse(self.orders.ask_hd(PHONE, old_order))
         self.assertIsNone(self.orders.notes_of(PHONE, old_order))
+
+    def test_new_cover_photo_is_waited_for(self):
+        # The owner's round 3 test: the album was rebuilt before the new cover
+        # photo was saved, so it kept the old cover.
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.finish()
+        self.say("button", "cover_no")
+        order_id = self.db.orders[0]["id"]
+        waited = []
+        self.orders.on_ready = lambda phone, order: waited.append(
+            self.orders.wait_for_photos(order, timeout=0.01))
+        self.orders.answer(PHONE, "button", "edit_cover", TEXTS)
+        replies, job = self.orders.answer(PHONE, "photo", photo(20), TEXTS)
+        self.assertEqual(waited, [False])          # the album would wait for it
+        self.orders.photo_done(order_id)           # bot.py calls this once it's saved
+        self.assertTrue(self.orders.wait_for_photos(order_id, timeout=0.01))
 
     def test_wait_for_photos(self):
         self.orders.photo_saving("o1")
