@@ -101,7 +101,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 | # | Task | Who | Done when… |
 |---|---|---|---|
 | 2.1 ✅ | **Quality check:** blurry photos, duplicates, image size, sort by date. Guide: [docs/setup/2.1-quality-check.md](docs/setup/2.1-quality-check.md) | 🤝 | Bad photos in a test folder are flagged. ✅ Done Nov 22, 2026: 16-photo test on the Mac; burst shots removed, blurry limits raised to 80/150 after the test |
-| 2.2 | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ⏳ Code ready (Nov 22, 2026) with a placeholder 20×20 cm page and first-draft designs, waiting for the owner's test on the Mac and phone |
+| 2.2 | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ⏳ Code ready (Nov 22, 2026) with a placeholder 20×20 cm page and first-draft designs. The owner's first test (a real 38-photo album through the bot) worked, but photos were cut through faces and people; fixed with face finding, waiting for the re-test |
 | 2.3 | **Print PDF** in the printer's exact specifications | 🤝 | The printer accepts the file |
 | 2.4 | **Watermarked previews:** small, numbered page images sent in WhatsApp | 🤝 | You get the page images in WhatsApp |
 
@@ -117,6 +117,11 @@ The printer and the test album are in the sales track (S.2, S.4).
 ### Stage 4: Polish and grow (🔒 only after the go/stop decision passes)
 
 A payment company, automatic changes, order tracking, more languages (each with its own campaign), a Lupa option, and a cloud server at around 30–50 albums a month.
+
+Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
+- **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
+- **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3.
+- Letting customers rearrange photos themselves was considered and **rejected**: too hard in WhatsApp. They can ask for a simple change after the preview instead.
 
 ---
 

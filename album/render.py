@@ -20,13 +20,6 @@ try:
 except ImportError:
     pass
 
-# Where to cut a photo that doesn't fit its spot: in the middle from side to
-# side, and a bit above the middle from top to bottom (faces are usually in
-# the upper part of a photo, so we keep heads rather than feet).
-CROP_X = 0.5
-CROP_Y = 0.4
-
-
 class PhotoBox:
     """Opens each photo only when needed, already shrunk, so 100 big photos
     don't fill the computer's memory."""
@@ -34,12 +27,17 @@ class PhotoBox:
     def __init__(self, photos):
         self.data = dict(photos)   # name -> the photo's bytes
 
-    def open(self, name, width, height):
+    def open(self, name, width, height, crop=(0, 0, 1, 1)):
+        """The part of the photo chosen by layout.py (crop), at this size in pixels."""
+        cx, cy, cw, ch = crop
         image = Image.open(BytesIO(self.data[name]))
-        image.draft("RGB", (width, height))   # JPEG: decode at a smaller size (fast)
+        # JPEG: decode at a smaller size (fast). Photos turned sideways swap sizes.
+        need = (round(width / cw), round(height / ch))
+        image.draft("RGB", (max(need), max(need)))
         image = ImageOps.exif_transpose(image).convert("RGB")
-        return ImageOps.fit(image, (width, height), Image.Resampling.LANCZOS,
-                            centering=(CROP_X, CROP_Y))
+        box = (round(cx * image.width), round(cy * image.height),
+               round((cx + cw) * image.width), round((cy + ch) * image.height))
+        return image.crop(box).resize((width, height), Image.Resampling.LANCZOS)
 
 
 def draw_page(page, album, photos, pixels_per_mm):
@@ -66,7 +64,7 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
         draw.rounded_rectangle((x, y, x + w - 1, y + h - 1), radius=corner, fill="white")
         x, y, w, h = x + border, y + border, w - 2 * border, h - 2 * border
         corner = max(0, corner - border)
-    photo = photos.open(spot.photo, w, h)
+    photo = photos.open(spot.photo, w, h, spot.crop)
     mask = None
     if corner:
         mask = Image.new("L", (w, h), 0)

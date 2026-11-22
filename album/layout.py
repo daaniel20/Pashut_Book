@@ -12,6 +12,10 @@ How it decides, in short:
    variety (a few single-photo pages between busier ones).
 4. For each group, pick the template (designs.TEMPLATES) that crops the
    photos the least, with the rule: lower-quality photos only in small spots.
+5. Decide how to cut each photo to fit its spot, keeping every face in and
+   keeping more of the top (raised hands, heads) than the bottom. If that's
+   not possible, or it would cut off too much, the WHOLE photo is shown,
+   a bit smaller, instead.
 """
 
 from __future__ import annotations
@@ -22,6 +26,19 @@ from itertools import permutations
 
 import designs
 
+# The most of a photo we cut off to fill a spot. Photos with people are barely
+# cut (a rule from the Rega album maker, see docs/research-notes.md), photos
+# without people (landscapes, food) may be cut more: 0.26 lets an upright
+# phone photo (3:4) fill a square spot.
+MAX_CUT = 0.26
+MAX_CUT_PEOPLE = 0.15
+# Room kept around faces, in face sizes: above (hair, raised hands), below
+# (chin, shoulders) and at the sides.
+ROOM_ABOVE, ROOM_BELOW, ROOM_SIDE = 1.0, 0.6, 0.5
+# Where to cut when there are no faces, or room to spare: 0 = keep the top,
+# 0.5 = the middle. A little toward the top keeps heads and raised hands.
+KEEP_TOP = 0.3
+
 
 @dataclass
 class Spot:
@@ -31,6 +48,9 @@ class Spot:
     width: float
     height: float
     small: bool         # a small spot (lower-quality photos may go here)
+    # The part of the photo shown: (x, y, width, height), as parts of the photo
+    # (0 to 1). (0, 0, 1, 1) = the whole photo.
+    crop: tuple = (0, 0, 1, 1)
 
 
 @dataclass
@@ -129,8 +149,14 @@ def _best_template(group, recent, allow_full, style):
             if any(photo.grade != "ok" and not small
                    for photo, (_, small) in zip(order, shapes)):
                 continue    # a lower-quality photo in a big spot: not allowed
-            crop = sum(_crop_loss(p, aspect) for p, (aspect, _) in zip(order, shapes))
-            score = crop / len(group)
+            cuts = [_cut(photo, aspect) for photo, (aspect, _) in zip(order, shapes)]
+            if name == "full" and None in cuts:
+                continue    # an edge-to-edge page must be cut to fit
+            # Cutting costs what is cut off. Showing the whole photo smaller costs
+            # the empty space around it, plus extra: an uneven page looks less tidy.
+            cost = sum(_crop_loss(photo, aspect) + (0.3 if cut is None else 0)
+                       for photo, (aspect, _), cut in zip(order, shapes, cuts))
+            score = cost / len(group)
             score += 0.05 * _out_of_order(group, order)   # keep the order when we can
             if name in recent[-2:]:
                 score += 0.15      # don't repeat the same look page after page
@@ -170,6 +196,61 @@ def _crop_loss(photo, spot_aspect):
     return 1 - min(aspect, spot_aspect) / max(aspect, spot_aspect)
 
 
+# ---------- cutting a photo to fit its spot ----------
+
+def _cut(photo, spot_aspect):
+    """The part of the photo to show in a spot of this shape: (x, y, w, h) as
+    parts of the photo. None if it can't be cut without losing a face or too
+    much of the photo: then the whole photo is shown, smaller."""
+    if not photo.width or not photo.height:
+        return (0, 0, 1, 1)
+    aspect = photo.width / photo.height
+    faces = _faces_box(getattr(photo, "faces", None) or [])
+    if _crop_loss(photo, spot_aspect) > (MAX_CUT_PEOPLE if faces else MAX_CUT):
+        return None
+    if aspect > spot_aspect:            # wider than the spot: cut the sides
+        width = spot_aspect / aspect
+        x = _place(width, faces and (faces[0], faces[2]), 0.5)
+        return None if x is None else (round(x, 4), 0, round(width, 4), 1)
+    height = aspect / spot_aspect       # taller than the spot: cut top and bottom
+    y = _place(height, faces and (faces[1], faces[3]), KEEP_TOP)
+    return None if y is None else (0, round(y, 4), 1, round(height, 4))
+
+
+def _faces_box(faces):
+    """One box around all the faces, with room around them: (left, top, right, bottom)."""
+    if not faces:
+        return None
+    left = min(x - ROOM_SIDE * w for x, y, w, h in faces)
+    right = max(x + w + ROOM_SIDE * w for x, y, w, h in faces)
+    top = min(y - ROOM_ABOVE * h for x, y, w, h in faces)
+    bottom = max(y + h + ROOM_BELOW * h for x, y, w, h in faces)
+    return (max(0, left), max(0, top), min(1, right), min(1, bottom))
+
+
+def _place(size, keep, where):
+    """Where a window of this size (0-1) starts, so it holds the part to keep
+    (start, end). None if that part doesn't fit."""
+    if not keep:
+        return (1 - size) * where
+    lowest = max(0, keep[1] - size)     # the window must reach the end of the faces
+    highest = min(1 - size, keep[0])    # and start before them
+    if lowest > highest + 1e-6:
+        return None
+    return lowest + (highest - lowest) * where
+
+
+def _fit_inside(spot, photo):
+    """Make the spot the photo's own shape, in the middle of where it was."""
+    aspect = photo.width / photo.height
+    if spot.width / spot.height > aspect:
+        width = spot.height * aspect
+        spot.x, spot.width = round(spot.x + (spot.width - width) / 2, 2), round(width, 2)
+    else:
+        height = spot.width / aspect
+        spot.y, spot.height = round(spot.y + (spot.height - height) / 2, 2), round(height, 2)
+
+
 # ---------- turning a template into spots in mm ----------
 
 def _page(name, photos, background, style):
@@ -198,17 +279,30 @@ def _page(name, photos, background, style):
             width=round(spot_w, 2), height=round(spot_h, 2),
             small=max(spot_w, spot_h) <= designs.SMALL_SPOT * longest_page_side,
         ))
+        if photo is not None:
+            _fit_photo(page.spots[-1], photo)
     return page
 
 
+def _fit_photo(spot, photo):
+    cut = _cut(photo, spot.width / spot.height)
+    if cut is None:
+        _fit_inside(spot, photo)
+    else:
+        spot.crop = cut
+
+
 def _cover(usable, style, title):
-    """The front cover: the first good photo, with room for the title below it."""
-    photo = next((p for p in usable if p.grade == "ok"), usable[0])
+    """The front cover: an early good photo that fits the space well, with room
+    for the title below it."""
     margin = style["margin"] * 1.5
     text_height = designs.PAGE_HEIGHT * 0.2 if title else 0
+    width = designs.PAGE_WIDTH - 2 * margin
+    height = designs.PAGE_HEIGHT - 2 * margin - text_height
+    good = [p for p in usable if p.grade == "ok"][:10] or usable[:1]
+    photo = next((p for p in good if _cut(p, width / height)), good[0])
     cover = Page("cover", style["cover_background"])
     cover.spots.append(Spot(photo=photo.name, x=margin, y=margin,
-                            width=designs.PAGE_WIDTH - 2 * margin,
-                            height=designs.PAGE_HEIGHT - 2 * margin - text_height,
-                            small=False))
+                            width=width, height=height, small=False))
+    _fit_photo(cover.spots[0], photo)
     return cover
