@@ -39,6 +39,8 @@ except ImportError:
 # (measured Nov 2026: 57 photos via the bot, all exactly 2048 on the long side);
 # with HD a phone photo arrived at 5120.
 FULL_PAGE_PIXELS = 2000
+# WhatsApp without HD shrinks every photo to exactly this on the long side.
+WITHOUT_HD_PIXELS = 2048
 MIN_PIXELS = 800          # below this, too small even for a small spot
 # Sharpness score (higher = sharper). Measured on the sharpest parts of the photo,
 # so a portrait with a soft background is still fine.

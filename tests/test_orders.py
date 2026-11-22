@@ -189,5 +189,68 @@ class OrdersTest(unittest.TestCase):
         self.assertEqual(len(replies), 2)  # welcome + design buttons
 
 
+class AlbumReadyTest(unittest.TestCase):
+    """Task 2.2: a complete order starts the album; resending in HD replaces the photos."""
+
+    def setUp(self):
+        self.db = FakeDatabase()
+        self.ready = []
+        self.orders = orders.Orders(self.db, on_ready=lambda *a: self.ready.append(a))
+
+    def say(self, kind, value=None):
+        replies, job = self.orders.answer(PHONE, kind, value, TEXTS)
+        if job:
+            orders.save_photo(self.db, FakeWhatsApp(), job[0], job[1], value)
+        return replies
+
+    def finish(self, first=1, count=3):
+        for n in range(first, first + count):
+            self.say("photo", photo(n))
+        self.say("button", "photos_done")
+
+    def test_complete_order_starts_the_album_once(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.finish()
+        self.say("button", "cover_no")
+        order_id = self.db.orders[0]["id"]
+        self.assertEqual(self.ready, [(PHONE, order_id)])
+        self.say("text", "עוד משהו")
+        self.assertEqual(len(self.ready), 1)
+
+    def test_resend_in_hd(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.finish()
+        self.say("button", "cover_no")
+        order_id = self.db.orders[0]["id"]
+        self.assertTrue(self.orders.ask_hd(PHONE, order_id))
+        self.assertEqual(self.db.orders[0]["step"], "hd_question")
+        self.assertIn("hd_asked", self.orders.notes_of(PHONE, order_id))
+        self.say("button", "hd_help")
+        self.assertEqual(self.db.photos, [])          # the old photos are gone
+        self.finish(first=10, count=2)
+        self.assertEqual(len(self.db.photos), 2)
+        self.assertIn(f"{order_id}/001.jpg", self.db.files)
+        self.assertEqual(self.db.orders[0]["step"], "done")
+        self.assertEqual(len(self.ready), 2)          # the album starts again
+
+    def test_ask_hd_does_nothing_after_a_new_album(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.finish()
+        self.say("button", "cover_no")
+        old_order = self.db.orders[0]["id"]
+        self.say("text", "אלבום חדש")
+        self.assertFalse(self.orders.ask_hd(PHONE, old_order))
+        self.assertIsNone(self.orders.notes_of(PHONE, old_order))
+
+    def test_wait_for_photos(self):
+        self.orders.photo_saving("o1")
+        self.assertFalse(self.orders.wait_for_photos("o1", timeout=0.01))
+        self.orders.photo_done("o1")
+        self.assertTrue(self.orders.wait_for_photos("o1", timeout=0.01))
+
+
 if __name__ == "__main__":
     unittest.main()

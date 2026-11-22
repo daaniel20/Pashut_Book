@@ -3,6 +3,7 @@
 Task 1.1: receive WhatsApp messages and reply.
 Task 1.2: the Hebrew conversation with buttons (the steps are in conversation.py).
 Task 1.3: save orders and photos in Supabase (orders.py, database.py).
+Task 2.2: when an order is complete, check the photos and build the album (album_job.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -32,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import conversation
+from album_job import AlbumJobs
 from database import Database, DatabaseError
 from orders import Orders, save_photo
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
@@ -135,6 +137,8 @@ def save_photo_safely(order_id, number, media):
         save_photo(db, whatsapp, order_id, number, media)
     except Exception:
         log.exception("Something went wrong while saving a photo")
+    finally:
+        orders.photo_done(order_id)   # the album waits for this
 
 
 def handle_notice(data):
@@ -159,6 +163,9 @@ def handle_notice(data):
                     except DatabaseError as error:
                         log.error("Supabase problem: %s", error)
                         replies, photo = problem_notice(sender), None
+                    if photo:
+                        # Counted inside the lock, so a "done" right after it waits for it.
+                        orders.photo_saving(photo[0])
                 if photo:
                     order_id, number = photo
                     photo_savers.submit(save_photo_safely, order_id, number, value)
@@ -257,6 +264,7 @@ def main():
     whatsapp = WhatsApp(env)
     db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
     orders = Orders(db)
+    orders.on_ready = AlbumJobs(orders, send, TEXTS).start
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

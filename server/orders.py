@@ -8,6 +8,10 @@
 - If a customer starts a new album before finishing the old one, the old one
   is marked "cancelled" and its photos are deleted.
 
+Task 2.2: when an order is complete, on_ready(phone, order_id) is called, so
+album_job.py can check the photos and build the album. The photos still being
+saved are counted, so the album waits for them.
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -37,11 +41,14 @@ def short(order_id):
 
 
 class Orders:
-    def __init__(self, db):
+    def __init__(self, db, on_ready=None):
         self.db = db
+        self.on_ready = on_ready   # called as on_ready(phone, order_id) when an order is complete
         self._states = {}   # phone -> conversation state
         self._locks = {}    # phone -> lock (one message at a time per customer)
         self._guard = threading.Lock()
+        self._saving = {}   # order_id -> photos still being saved
+        self._saved = threading.Condition()
 
     def lock_for(self, phone):
         with self._guard:
@@ -71,16 +78,72 @@ class Orders:
             if old_step != "done":
                 self._cancel(old_order)
             return replies, None
+        if state.pop("resend_photos", False):
+            # The customer is sending their photos again in HD: delete the old ones
+            # first, so the new photo 1, 2, 3… don't clash with them.
+            try:
+                count = self.db.delete_order_photos(state["order_id"])
+                log.info("Deleted %s photos of order %s (resending in HD)",
+                         count, short(state["order_id"]))
+            except DatabaseError as error:
+                log.error("Could not delete old photos of order %s: %s",
+                          short(state["order_id"]), error)
         try:
             self.db.update_order(state["order_id"], _fields(state))
         except DatabaseError as error:
             # The bot still remembers it; the next message saves it again.
             log.error("Could not save order %s: %s", short(state["order_id"]), error)
 
+        if state["step"] == "done" and old_step != "done" and self.on_ready:
+            self.on_ready(phone, state["order_id"])
+
         photo = None
         if kind == "photo" and state["photos"] > count_before:
             photo = (state["order_id"], state["photos"])
         return replies, photo
+
+    # ---------- for the album (task 2.2) ----------
+
+    def photo_saving(self, order_id):
+        """A photo of this order started saving (call before save_photo)."""
+        with self._saved:
+            self._saving[order_id] = self._saving.get(order_id, 0) + 1
+
+    def photo_done(self, order_id):
+        """That photo is saved, or failed for good."""
+        with self._saved:
+            self._saving[order_id] -= 1
+            if not self._saving[order_id]:
+                del self._saving[order_id]
+            self._saved.notify_all()
+
+    def wait_for_photos(self, order_id, timeout):
+        """Wait until all of the order's photos are saved. False if it took too long."""
+        with self._saved:
+            return self._saved.wait_for(lambda: order_id not in self._saving, timeout)
+
+    def notes_of(self, phone, order_id):
+        """The order's notes, or None if the customer has moved on to another order."""
+        with self.lock_for(phone):
+            state = self._states.get(phone)
+            if not state or state["order_id"] != order_id:
+                return None
+            return list(state["notes"])
+
+    def ask_hd(self, phone, order_id):
+        """Move a finished order to the "resend in HD?" question.
+        Returns False if the customer has meanwhile done something else."""
+        with self.lock_for(phone):
+            state = self._states.get(phone)
+            if not state or state["order_id"] != order_id or state["step"] != "done":
+                return False
+            state["step"] = "hd_question"
+            state["notes"].append("hd_asked")
+            try:
+                self.db.update_order(order_id, _fields(state))
+            except DatabaseError as error:
+                log.error("Could not save order %s: %s", short(order_id), error)
+            return True
 
     def _load(self, phone):
         if phone not in self._states:

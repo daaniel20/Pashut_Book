@@ -1,0 +1,94 @@
+"""Automatic checks for building the album from the bot (task 2.2).
+
+The real album tool is replaced by a pretend one, so no photos or Pillow are needed.
+Run:   python3 -m unittest discover tests
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+
+import album_job  # noqa: E402
+from settings import load_texts  # noqa: E402
+
+TEXTS = load_texts("he")
+PHONE = "972500000000"
+
+
+class FakeOrders:
+    def __init__(self, notes=()):
+        self.notes = list(notes)
+        self.asked = False
+        self.current = True    # the customer hasn't started another order
+
+    def wait_for_photos(self, order_id, timeout):
+        return True
+
+    def notes_of(self, phone, order_id):
+        return list(self.notes) if self.current else None
+
+    def ask_hd(self, phone, order_id):
+        self.asked = True
+        self.notes.append("hd_asked")
+        return True
+
+
+class AlbumJobTest(unittest.TestCase):
+    def run_job(self, check, notes=(), current=True):
+        self.orders = FakeOrders(notes)
+        self.orders.current = current
+        self.sent, self.calls = [], []
+
+        def tool(order_id, check_only):
+            self.calls.append("check" if check_only else "build")
+            return check if check_only else {"pages": 24, "folder": "x"}
+
+        jobs = album_job.AlbumJobs(self.orders, lambda phone, m: self.sent.append(m),
+                                   TEXTS, run_tool=tool)
+        jobs.run(PHONE, "order-1")
+
+    def info(self, photos=60, without_hd=0, blurry=0, duplicate=0):
+        return {"photos": photos, "used": photos - blurry - duplicate, "without_hd": without_hd,
+                "left_out": {"blurry": blurry, "duplicate": duplicate, "unusable": 0}}
+
+    def test_good_photos_build_quietly(self):
+        self.run_job(self.info())
+        self.assertEqual(self.calls, ["check", "build"])
+        self.assertEqual(self.sent, [])
+
+    def test_left_out_photos_get_one_short_message(self):
+        self.run_job(self.info(blurry=3, duplicate=2))
+        self.assertEqual(self.calls, ["check", "build"])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("3 תמונות מטושטשות ו-2 תמונות כפולות", self.sent[0]["text"])
+
+    def test_no_hd_asks_before_building(self):
+        self.run_job(self.info(without_hd=50, blurry=2))
+        self.assertTrue(self.orders.asked)
+        self.assertEqual(self.calls, ["check"])          # not built yet
+        self.assertEqual([b["id"] for b in self.sent[0]["buttons"]], ["hd_help", "hd_continue"])
+
+    def test_no_hd_asks_only_once(self):
+        self.run_job(self.info(without_hd=60), notes=["hd_asked"])
+        self.assertFalse(self.orders.asked)
+        self.assertEqual(self.calls, ["check", "build"])
+
+    def test_a_few_photos_without_hd_are_fine(self):
+        self.run_job(self.info(without_hd=10))
+        self.assertFalse(self.orders.asked)
+
+    def test_customer_moved_on(self):
+        self.run_job(self.info(), current=False)
+        self.assertEqual(self.calls, ["check"])
+        self.assertEqual(self.sent, [])
+
+    def test_tool_missing_or_failed(self):
+        self.run_job(None)
+        self.assertEqual(self.calls, ["check"])
+        self.assertEqual(self.sent, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

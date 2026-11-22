@@ -133,5 +133,75 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(read({"type": "video"}), ("other", "video"))
 
 
+class AlbumMessagesTest(unittest.TestCase):
+    """Task 2.2: the HD question and the "photos left out" message."""
+
+    def finished_state(self, photos=5):
+        state = conversation.new_state()
+        talk(state, "text", "היי")
+        talk(state, "button", "design_classic")
+        for _ in range(photos):
+            talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_yes")
+        talk(state, "text", "הטיול")
+        self.assertEqual(state["step"], "done")
+        return state
+
+    def test_left_out_message(self):
+        text = conversation.left_out_message({"blurry": 3, "duplicate": 2, "unusable": 0}, TEXTS)
+        self.assertIn("3 תמונות מטושטשות ו-2 תמונות כפולות לא נכנסו", text)
+        text = conversation.left_out_message({"blurry": 1, "duplicate": 0, "unusable": 0}, TEXTS)
+        self.assertIn("תמונה מטושטשת אחת לא נכנסה", text)
+        text = conversation.left_out_message({"blurry": 2, "duplicate": 1, "unusable": 4}, TEXTS)
+        self.assertIn("2 תמונות מטושטשות, תמונה כפולה אחת ו-4 תמונות", text)
+        self.assertIsNone(conversation.left_out_message(
+            {"blurry": 0, "duplicate": 0, "unusable": 0}, TEXTS))
+
+    def test_hd_question_buttons_fit_whatsapp(self):
+        message = conversation.hd_question(TEXTS)
+        self.assertEqual(button_ids(message), ["hd_help", "hd_continue"])
+        for button in message["buttons"]:
+            self.assertLessEqual(len(button["title"]), 20)   # WhatsApp's limit
+
+    def test_continue_anyway(self):
+        state = self.finished_state()
+        state["step"] = "hd_question"        # what album_job.py does
+        replies = talk(state, "button", "hd_continue")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(state["photos"], 5)
+        self.assertEqual(len(replies), 1)
+
+    def test_resend_in_hd_keeps_the_title(self):
+        state = self.finished_state()
+        state["step"] = "hd_question"
+        replies = talk(state, "button", "hd_help")
+        self.assertIn("HD", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        self.assertEqual((state["step"], state["photos"]), ("photos", 0))
+        self.assertTrue(state.pop("resend_photos"))
+        for _ in range(4):
+            talk(state, "photo")
+        replies = talk(state, "button", "photos_done")
+        # The cover was already answered: straight to the summary.
+        self.assertEqual(state["step"], "done")
+        self.assertIn("הטיול", replies[0]["text"])
+        self.assertIn("4", replies[0]["text"])
+
+    def test_photo_instead_of_tapping_starts_the_resend(self):
+        state = self.finished_state()
+        state["step"] = "hd_question"
+        replies = talk(state, "photo")
+        self.assertEqual((state["step"], state["photos"]), ("photos", 1))
+        self.assertTrue(state["resend_photos"])
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+
+    def test_other_text_repeats_the_question(self):
+        state = self.finished_state()
+        state["step"] = "hd_question"
+        replies = talk(state, "text", "מה?")
+        self.assertEqual(button_ids(replies[0]), ["hd_help", "hd_continue"])
+
+
 if __name__ == "__main__":
     unittest.main()

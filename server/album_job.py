@@ -1,0 +1,123 @@
+"""Build the album when an order is complete (task 2.2).
+
+When a customer finishes (design, photos, cover title), the bot calls
+AlbumJobs.start(). In the background it:
+1. waits until all the order's photos are saved in Supabase,
+2. checks the photos (album/build_album.py --check),
+3. if most photos came WITHOUT HD, asks the customer whether to resend them
+   in HD (buttons: [How do I send HD?] [Continue anyway]), and stops there.
+   When they tap "Continue anyway", the order is complete again and this runs again.
+4. otherwise, tells the customer in one short message if photos were left out
+   (blurry, duplicates), and builds the album.
+
+The album is built on this Mac, in output/albums/<order>/ (open album.html).
+The customer sees nothing more yet: the page previews are task 2.4, and the
+owner's approval is task 3.1.
+
+The album tools need Pillow, so they run with the project's .venv Python, as a
+separate program. The bot itself still uses only Python's built-in tools.
+"""
+
+import json
+import logging
+import subprocess
+import threading
+
+import conversation
+from orders import short
+from settings import PROJECT_DIR
+
+log = logging.getLogger("bot")
+
+ALBUM_PYTHON = PROJECT_DIR / ".venv" / "bin" / "python"
+BUILD_SCRIPT = PROJECT_DIR / "album" / "build_album.py"
+# Ask to resend in HD when at least this part of the photos came without it.
+WITHOUT_HD_SHARE = 0.5
+PHOTOS_WAIT_SECONDS = 15 * 60
+TOOL_SECONDS = 20 * 60
+
+
+class AlbumJobs:
+    def __init__(self, orders, send, texts, run_tool=None):
+        self.orders = orders
+        self.send = send              # send(phone, message)
+        self.texts = texts
+        self.run_tool = run_tool or run_album_tool
+        self._running = set()
+        self._guard = threading.Lock()
+
+    def start(self, phone, order_id):
+        """Check and build in the background (called by orders.py)."""
+        with self._guard:
+            if order_id in self._running:
+                return
+            self._running.add(order_id)
+        threading.Thread(target=self._safe_run, args=(phone, order_id), daemon=True).start()
+
+    def _safe_run(self, phone, order_id):
+        try:
+            self.run(phone, order_id)
+        except Exception:
+            log.exception("Something went wrong while building album %s", short(order_id))
+        finally:
+            with self._guard:
+                self._running.discard(order_id)
+
+    def run(self, phone, order_id):
+        name = short(order_id)
+        if not self.orders.wait_for_photos(order_id, PHOTOS_WAIT_SECONDS):
+            log.warning("Album %s: some photos are still saving; checking anyway", name)
+
+        info = self.run_tool(order_id, check_only=True)
+        if not info:
+            return
+        notes = self.orders.notes_of(phone, order_id)
+        if notes is None:
+            log.info("Album %s: the customer started another order; stopped", name)
+            return
+        log.info("Album %s: %s photos, %s without HD, left out %s", name,
+                 info["photos"], info["without_hd"], info["left_out"])
+
+        if needs_hd(info) and "hd_asked" not in notes:
+            if self.orders.ask_hd(phone, order_id):
+                self.send(phone, conversation.hd_question(self.texts))
+                log.info("Album %s: asked the customer to resend in HD", name)
+            return
+
+        message = conversation.left_out_message(info["left_out"], self.texts)
+        if message:
+            self.send(phone, {"text": message})
+
+        result = self.run_tool(order_id, check_only=False)
+        if result and "pages" in result:
+            log.info("✅ Album %s built: %s pages. Open %s/album.html",
+                     name, result["pages"], result["folder"])
+        elif result:
+            log.error("❌ Album %s was not built: %s", name, result.get("error"))
+
+
+def needs_hd(info):
+    return info["photos"] > 0 and info["without_hd"] >= WITHOUT_HD_SHARE * info["photos"]
+
+
+def run_album_tool(order_id, check_only):
+    """Run album/build_album.py for an order. Returns its result, or None."""
+    if not ALBUM_PYTHON.exists():
+        log.error("❌ Album tools not installed (%s is missing). "
+                  "See docs/setup/2.1-quality-check.md, step 1.", ALBUM_PYTHON)
+        return None
+    command = [str(ALBUM_PYTHON), str(BUILD_SCRIPT), "--order", order_id, "--json"]
+    if check_only:
+        command.append("--check")
+    try:
+        done = subprocess.run(command, cwd=PROJECT_DIR, capture_output=True,
+                              text=True, timeout=TOOL_SECONDS)
+    except subprocess.TimeoutExpired:
+        log.error("❌ Album %s: the album tool took too long", short(order_id))
+        return None
+    lines = done.stdout.strip().splitlines()
+    if done.returncode != 0 or not lines:
+        log.error("❌ Album %s: the album tool failed: %s", short(order_id),
+                  (done.stderr or done.stdout).strip()[-800:])
+        return None
+    return json.loads(lines[-1])
