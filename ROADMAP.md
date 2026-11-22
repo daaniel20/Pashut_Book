@@ -94,7 +94,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 |---|---|---|---|
 | 1.1 ✅ | **First bot:** the Mac receives WhatsApp messages and answers "Hello!" Guide: [docs/setup/1.1-first-bot.md](docs/setup/1.1-first-bot.md) | 🤝 | You write to the bot and get an automatic reply. ✅ Done Nov 22, 2026: the test number answers automatically (the app had to be **published** first) |
 | 1.2 ✅ | **Hebrew conversation + design buttons:** welcome → choose design → HD instructions → send photos → cover title. Guide: [docs/setup/1.2-conversation.md](docs/setup/1.2-conversation.md) | 🤝 | You can walk through the whole conversation. ✅ Done Nov 22, 2026: tested on the owner's phone |
-| 1.3 | **Collect and store photos:** save each one in Supabase, count them, enforce the limit. Guide: [docs/setup/1.3-photos.md](docs/setup/1.3-photos.md) | 🤝 | 60 photos sent → "Got 60 photos 👍", all saved |
+| 1.3 ✅ | **Collect and store photos:** save each one in Supabase, count them, enforce the limit. Guide: [docs/setup/1.3-photos.md](docs/setup/1.3-photos.md) | 🤝 | 60 photos sent → "Got 60 photos 👍", all saved. ✅ Done Nov 22, 2026: 57 photos sent from the owner's phone, 57 counted, 57 saved in Supabase |
 
 ### Stage 2: Automatic album
 
