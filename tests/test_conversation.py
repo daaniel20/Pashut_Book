@@ -222,7 +222,7 @@ class ConversationTest(unittest.TestCase):
         state = self.finished_order()
         replies = talk(state, "button", "confirm")
         self.assertEqual(state["step"], "done")
-        self.assertIn("נעצב את האלבום", replies[0]["text"])
+        self.assertIn("נעדכן אתכם", replies[0]["text"])
         self.assertEqual(talk(state, "button", "confirm"), [])   # a second tap: quiet
         replies = talk(state, "text", "תודה")                     # can still change later
         self.assertEqual(button_ids(replies[0]), ["edit_menu"])
