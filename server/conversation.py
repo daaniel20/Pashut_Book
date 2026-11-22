@@ -7,7 +7,9 @@ The steps, in order:
   photos   -> waiting for photos, until the customer taps "done"
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
-  done     -> everything is collected; the album is "in the works"
+  done     -> everything is collected; the album is "in the works".
+              The summary has buttons to change the title or the design: that goes
+              back to the "title" or "design" step, then straight to a new summary.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
 
@@ -82,6 +84,9 @@ def answer(state, kind, value, texts):
         if design is None:
             return [_design_buttons(t, t["choose_design_again"])]
         state["design"] = design
+        if "editing" in state["notes"]:
+            # They came back from the summary to change the design.
+            return _finish(state, t)
         state["step"] = "photos"
         messages = [_text(t["design_chosen"].format(
             design=t["design_" + design], max=MAX_PHOTOS))]
@@ -105,6 +110,7 @@ def answer(state, kind, value, texts):
 
     if step == "cover":
         if (kind == "button" and value == "cover_no") or words in _word_list(t, "no_words"):
+            state["title"] = None
             return _finish(state, t)
         if (kind == "button" and value == "cover_yes") or words in _word_list(t, "yes_words"):
             state["step"] = "title"
@@ -116,6 +122,7 @@ def answer(state, kind, value, texts):
 
     if step == "title":
         if kind == "button" and value == "cover_no":
+            state["title"] = None
             return _finish(state, t)
         if kind == "text" and words:
             return _save_title(state, value, t)
@@ -131,7 +138,15 @@ def answer(state, kind, value, texts):
         return [hd_question(t)]
 
     # step == "done"
-    return _once(state, "after_done", [_text(t["after_done"])])
+    if (kind == "button" and value == "edit_title") or words == _clean(t["button_edit_title"]):
+        state["step"] = "title"
+        state["notes"].append("editing")
+        return [_title_request(t)]
+    if (kind == "button" and value == "edit_design") or words == _clean(t["button_edit_design"]):
+        state["step"] = "design"
+        state["notes"].append("editing")
+        return [_design_buttons(t, t["choose_design"])]
+    return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
 
 
 def hd_question(t):
@@ -178,7 +193,7 @@ def _on_photo(state, t):
         state["photos"] = 1
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
-        return _once(state, "after_done", [_text(t["after_done"])])
+        return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
     if state["photos"] >= MAX_PHOTOS:
         return _once(state, "photo_limit", [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))])
     state["photos"] += 1
@@ -221,12 +236,15 @@ def _save_title(state, value, t):
 
 def _finish(state, t):
     state["step"] = "done"
+    for note in ("editing", "after_done"):
+        while note in state["notes"]:
+            state["notes"].remove(note)
     summary = t["summary"].format(
         design=t["design_" + state["design"]],
         count=state["photos"],
         title=state["title"] or t["no_title"],
     )
-    return [_text(summary)]
+    return [_edit_buttons(t, summary)]
 
 
 def _once(state, note, messages):
@@ -252,6 +270,14 @@ def _text(text):
 def _design_buttons(t, text):
     return {"text": text, "buttons": [
         {"id": "design_" + design, "title": t["design_" + design]} for design in DESIGNS
+    ]}
+
+
+def _edit_buttons(t, text):
+    """The summary's buttons: change the title or the design."""
+    return {"text": text, "buttons": [
+        {"id": "edit_title", "title": t["button_edit_title"]},
+        {"id": "edit_design", "title": t["button_edit_design"]},
     ]}
 
 

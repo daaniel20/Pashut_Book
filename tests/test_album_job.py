@@ -90,5 +90,39 @@ class AlbumJobTest(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
 
+
+class RebuildTest(unittest.TestCase):
+    def test_change_during_a_build_builds_again(self):
+        import threading
+        builds = []
+        first_build_started, let_it_finish = threading.Event(), threading.Event()
+        info = {"photos": 10, "used": 10, "without_hd": 0,
+                "left_out": {"blurry": 1, "duplicate": 0, "unusable": 0}}
+
+        def tool(order_id, check_only):
+            if check_only:
+                return info
+            builds.append(order_id)
+            if len(builds) == 1:
+                first_build_started.set()
+                let_it_finish.wait(5)
+            return {"pages": 24, "folder": "x"}
+
+        sent = []
+        jobs = album_job.AlbumJobs(FakeOrders(), lambda phone, m: sent.append(m),
+                                   TEXTS, run_tool=tool)
+        jobs.start(PHONE, "order-1")
+        self.assertTrue(first_build_started.wait(5))
+        jobs.start(PHONE, "order-1")   # the customer changed the title meanwhile
+        let_it_finish.set()
+        for _ in range(100):
+            with jobs._guard:
+                if "order-1" not in jobs._running:
+                    break
+            threading.Event().wait(0.05)
+        self.assertEqual(len(builds), 2)
+        self.assertEqual(len(sent), 1)  # "1 blurry photo left out" is said once
+
+
 if __name__ == "__main__":
     unittest.main()
