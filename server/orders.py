@@ -94,18 +94,22 @@ class Orders:
             # The bot still remembers it; the next message saves it again.
             log.error("Could not save order %s: %s", short(state["order_id"]), error)
 
-        if state["step"] == "done" and old_step != "done" and self.on_ready:
-            self.on_ready(phone, state["order_id"])
-
         photo = None
         if kind == "photo" and state["photos"] > count_before:
             photo = (state["order_id"], state["photos"])
+            # Count it as "still saving" BEFORE the album may start: a new cover
+            # photo is the very message that completes the order again, and the
+            # album must wait for it. The caller saves it, then calls photo_done().
+            self.photo_saving(state["order_id"])
+
+        if state["step"] == "done" and old_step != "done" and self.on_ready:
+            self.on_ready(phone, state["order_id"])
         return replies, photo
 
     # ---------- for the album (task 2.2) ----------
 
     def photo_saving(self, order_id):
-        """A photo of this order started saving (call before save_photo)."""
+        """A photo of this order started saving (answer() calls this itself)."""
         with self._saved:
             self._saving[order_id] = self._saving.get(order_id, 0) + 1
 
