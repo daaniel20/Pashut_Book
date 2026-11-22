@@ -1,0 +1,4 @@
+# Extra Python tools the project needs (installed into .venv, see docs/setup/2.1-quality-check.md).
+# The WhatsApp bot itself (server/) still uses only Python's built-in tools.
+Pillow>=11        # opens and checks photos (album builder)
+pillow-heif>=0.18 # lets Pillow open iPhone photos (HEIC)
