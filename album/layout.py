@@ -34,6 +34,10 @@ import designs
 # phone photo (3:4) fill a square spot.
 MAX_CUT = 0.26
 MAX_CUT_PEOPLE = 0.22
+# The cover is always edge to edge when it can be: a wide photo may lose up to
+# half (its sides) on the square cover, as long as every face stays in.
+# (Owner's test: a wide selfie fell back to a small photo with white around it.)
+MAX_CUT_COVER = 0.5
 # How much the layout choice cares about filling the page with photo rather
 # than background (owner's feedback: photos looked small on the page).
 FILL_WEIGHT = 1.0
@@ -397,7 +401,7 @@ def _crop_loss(photo, spot_aspect):
 
 # ---------- cutting a photo to fit its spot ----------
 
-def _cut(photo, spot_aspect, full_page=False):
+def _cut(photo, spot_aspect, full_page=False, cover=False):
     """The part of the photo to show in a spot of this shape: (x, y, w, h) as
     parts of the photo. None if it can't be cut without losing a face or too
     much of the photo: then the whole photo is shown, smaller."""
@@ -408,6 +412,8 @@ def _cut(photo, spot_aspect, full_page=False):
     # A photo with people is trimmed less, except on an edge-to-edge page, which
     # must be filled (an upright phone photo on a square page loses 25%).
     limit = MAX_CUT_PEOPLE if faces and not full_page else MAX_CUT
+    if cover:
+        limit = MAX_CUT_COVER   # the cover may lose more, as long as every face stays in
     if _crop_loss(photo, spot_aspect) > limit:
         return None
     if aspect > spot_aspect:            # wider than the spot: cut the sides
@@ -512,7 +518,7 @@ def _cover(usable, style, title, chosen=None):
     candidates = [chosen] if chosen else ([p for p in usable if p.grade == "ok"][:10]
                                           or usable[:1])
     for photo in candidates:
-        cut = _cut(photo, width / height, full_page=True)
+        cut = _cut(photo, width / height, full_page=True, cover=True)
         place = _title_place(photo, cut) if cut and title else "none"
         if cut and place:
             cover = Page("cover", style["cover_background"])

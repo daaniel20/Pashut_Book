@@ -43,11 +43,11 @@ gantt
     section 🛠️ Build: Stage 1
     First "Hello" bot                 :done, b1a, after b0c, 3d
     Hebrew flow + design buttons      :done, b1b, after b1a, 4d
-    Collect + store photos            :b1c, after b1b, 4d
+    Collect + store photos            :done, b1c, after b1b, 4d
 
     section 🛠️ Build: Stage 2
-    Photo quality check + sort        :b2a, after b1c, 5d
-    Templates as code + layout        :b2b, after b2a, 6d
+    Photo quality check + sort        :done, b2a, after b1c, 5d
+    Templates as code + layout        :done, b2b, after b2a, 6d
     Print PDF + watermarked previews  :b2c, after b2b, 4d
 
     section 🛠️ Build: Stage 3
@@ -101,7 +101,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 | # | Task | Who | Done when… |
 |---|---|---|---|
 | 2.1 ✅ | **Quality check:** blurry photos, duplicates, image size, sort by date. Guide: [docs/setup/2.1-quality-check.md](docs/setup/2.1-quality-check.md) | 🤝 | Bad photos in a test folder are flagged. ✅ Done Nov 22, 2026: 16-photo test on the Mac; burst shots removed, blurry limits raised to 80/150 after the test |
-| 2.2 | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ⏳ Code ready (Nov 22, 2026) with a placeholder 20×20 cm page and first-draft designs. The owner's first test (a real 38-photo album through the bot) worked, but photos were cut through faces and people; fixed with face finding, waiting for the re-test |
+| 2.2 ✅ | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ✅ Done Nov 23, 2026: tested in 4 rounds on the owner's real album through the bot (faces never cut, fuller pages, 20% edge-to-edge pages, the customer chooses and can change the cover photo, HD question and left-out message work). The page size and look are still placeholders until S.2 and S.3 |
 | 2.3 | **Print PDF** in the printer's exact specifications | 🤝 | The printer accepts the file |
 | 2.4 | **Watermarked previews:** small, numbered page images sent in WhatsApp | 🤝 | You get the page images in WhatsApp |
 
