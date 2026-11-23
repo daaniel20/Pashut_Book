@@ -59,7 +59,8 @@ class AlbumJobTest(unittest.TestCase):
             self.sent.append(message)
             return True
 
-        jobs = album_job.AlbumJobs(self.orders, send, TEXTS, run_tool=tool, pause=0)
+        jobs = album_job.AlbumJobs(self.orders, send, TEXTS, run_tool=tool,
+                                   make_link=lambda result: "https://x/album/CODE")
         jobs.run(PHONE, "order-1")
 
     def built(self):
@@ -67,12 +68,12 @@ class AlbumJobTest(unittest.TestCase):
         return {"pages": 4, "folder": "x",
                 "previews": [{"file": f"p{i}.jpg", "pages": g} for i, g in enumerate(groups)]}
 
-    def test_previews_are_sent_after_building(self):
+    def test_one_link_is_sent_after_building(self):
         self.run_job(self.info(), built=self.built())
+        self.assertEqual(len(self.sent), 2)
         self.assertIn("4", self.sent[0]["text"])
-        images = [m for m in self.sent if "image_file" in m]
-        self.assertEqual([m["caption"] for m in images],
-                         ["כריכה", "עמוד 1", "עמודים 2–3", "עמוד 4"])
+        self.assertEqual(self.sent[0]["link"]["url"], "https://x/album/CODE")
+        self.assertEqual(self.sent[0]["image_file"], "p0.jpg")    # the cover on top
         self.assertEqual(self.sent[-1]["buttons"][0]["id"], "preview_ok")
         self.assertIn("previews_sent", self.orders.notes)
 
@@ -81,9 +82,9 @@ class AlbumJobTest(unittest.TestCase):
         self.assertEqual(self.sent, [])
         self.assertNotIn("previews_sent", self.orders.notes)
 
-    def test_a_failed_image_stops_the_previews(self):
-        self.run_job(self.info(), built=self.built(), fail_at=2)
-        self.assertEqual(len(self.sent), 2)    # the intro and the cover
+    def test_a_failed_link_stops_there(self):
+        self.run_job(self.info(), built=self.built(), fail_at=0)
+        self.assertEqual(self.sent, [])
         self.assertNotIn("previews_sent", self.orders.notes)
 
     def info(self, photos=60, without_hd=0, blurry=0, duplicate=0):
@@ -147,7 +148,7 @@ class RebuildTest(unittest.TestCase):
 
         sent = []
         jobs = album_job.AlbumJobs(FakeOrders(), lambda phone, m: sent.append(m),
-                                   TEXTS, run_tool=tool, pause=0)
+                                   TEXTS, run_tool=tool)
         jobs.start(PHONE, "order-1")
         self.assertTrue(first_build_started.wait(5))
         jobs.start(PHONE, "order-1")   # the customer changed the title meanwhile

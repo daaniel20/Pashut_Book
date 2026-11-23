@@ -317,7 +317,8 @@ class ConversationTest(unittest.TestCase):
         for key in ["button_confirm", "design_classic", "design_colorful", "button_photos_done",
                     "button_cover_yes", "button_cover_no",
                     "button_edit_title", "button_edit_design",
-                    "button_edit_cover", "button_keep_cover", "button_preview_ok"]:
+                    "button_edit_cover", "button_keep_cover", "button_preview_ok",
+                    "button_preview_link"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):

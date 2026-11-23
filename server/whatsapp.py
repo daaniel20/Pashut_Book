@@ -1,8 +1,9 @@
 """Talk to Meta's WhatsApp API: send messages, and download customers' photos.
 
-Task 2.4: also send images (the album's previews). An image is first uploaded
-to Meta, privately (it gets a number, not a public web address), then sent.
-Meta deletes uploaded images by itself after 30 days.
+Task 2.4: also send a message with a button that opens a web address (the
+album's preview page), with a picture on top (the cover). The picture is first
+uploaded to Meta, privately (it gets a number, not a public web address), then
+sent. Meta deletes uploaded pictures by itself after 30 days.
 
 Uses only Python's built-in tools. The token comes from .env.
 """
@@ -30,8 +31,23 @@ class WhatsApp:
     def send(self, to, message):
         """Send one WhatsApp message: text, text with up to 3 buttons,
         or text with a list (one button that opens up to 10 choices),
-        or an image from this computer: {"image_file": path, "caption": "..."}."""
-        if message.get("image_file"):
+        or an image from this computer: {"image_file": path, "caption": "..."},
+        or text with a button that opens a web address, optionally with an image on top:
+        {"text": "...", "link": {"button": "...", "url": "..."}, "image_file": path}."""
+        if message.get("link"):
+            interactive = {
+                "type": "cta_url",
+                "body": {"text": message["text"]},
+                "action": {"name": "cta_url", "parameters": {
+                    "display_text": message["link"]["button"],
+                    "url": message["link"]["url"],
+                }},
+            }
+            if message.get("image_file"):
+                interactive["header"] = {"type": "image", "image": {
+                    "id": self.upload_image(message["image_file"])}}
+            payload = {"type": "interactive", "interactive": interactive}
+        elif message.get("image_file"):
             payload = {"type": "image", "image": {
                 "id": self.upload_image(message["image_file"]),
                 "caption": message.get("caption", ""),

@@ -4,7 +4,8 @@ Task 1.1: receive WhatsApp messages and reply.
 Task 1.2: the Hebrew conversation with buttons (the steps are in conversation.py).
 Task 1.3: save orders and photos in Supabase (orders.py, database.py).
 Task 2.2: when an order is complete, check the photos and build the album (album_job.py).
-Task 2.4: then send the customer the watermarked page previews (album_job.py).
+Task 2.4: then send the customer a private link to the album's preview
+(album_job.py), and show that page at /album/<code> (preview_links.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -34,6 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import conversation
+import preview_links
 from album_job import AlbumJobs
 from database import Database, DatabaseError
 from orders import Orders, save_photo
@@ -66,6 +68,8 @@ REQUIRED = [
 ]
 # How many photos are downloaded and saved at the same time.
 PHOTO_WORKERS = 4
+# The bot's public address (through the Cloudflare Tunnel), for preview links.
+DEFAULT_PUBLIC_URL = "https://bot.pashutbook.com"
 # If Supabase is down, tell the customer at most once every 10 minutes.
 PROBLEM_NOTICE_SECONDS = 600
 
@@ -193,11 +197,30 @@ class Handler(BaseHTTPRequestHandler):
             # Meta requires a public privacy policy before the app can be published.
             body = (PAGES_DIR / "privacy.html").read_bytes()
             self.respond(200, body, "text/html; charset=utf-8")
+        elif url.path.startswith("/album/"):
+            self.album_preview(url.path[len("/album/"):])
         elif url.path == "/health":
             self.respond(200, b"ok", "text/plain; charset=utf-8")
         else:
             now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             self.respond(200, PAGE.format(time=now).encode("utf-8"), "text/html; charset=utf-8")
+
+    def album_preview(self, rest):
+        """The customer's album preview page, and its images (task 2.4)."""
+        code, _, name = rest.partition("/")
+        data = preview_links.find(code)
+        if not data:
+            body = preview_links.expired_html(TEXTS).encode("utf-8")
+            self.respond(404, body, "text/html; charset=utf-8", private=True)
+        elif not name:
+            body = preview_links.page_html(code, data, TEXTS).encode("utf-8")
+            self.respond(200, body, "text/html; charset=utf-8", private=True)
+        else:
+            path = preview_links.image_path(data, name)
+            if path:
+                self.respond(200, path.read_bytes(), "image/jpeg", private=True)
+            else:
+                self.respond(404, b"not found", "text/plain; charset=utf-8", private=True)
 
     def verify_webhook(self, query):
         """Meta's one-time check when we save the webhook address in its dashboard."""
@@ -245,9 +268,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             log.exception("Something went wrong while answering a message")
 
-    def respond(self, status, body, content_type):
+    def respond(self, status, body, content_type, private=False):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        if private:
+            # Customer photos: no copies kept on the way, not listed by search
+            # engines, and the address isn't passed on to other sites.
+            self.send_header("Cache-Control", "no-store, private")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -266,7 +295,13 @@ def main():
     whatsapp = WhatsApp(env)
     db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
     orders = Orders(db)
-    orders.on_ready = AlbumJobs(orders, send, TEXTS).start
+    public_url = (env.get("PUBLIC_URL") or DEFAULT_PUBLIC_URL).rstrip("/")
+
+    def make_link(result):
+        code = preview_links.create(result["folder"], result["previews"], result["pages"])
+        return f"{public_url}/album/{code}"
+
+    orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
