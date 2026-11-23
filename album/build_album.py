@@ -21,7 +21,9 @@ It checks the photos (quality.py), plans the pages (layout.py) and draws them
 (render.py). The result goes to output/albums/<name>/ on this Mac only:
   album.html     open it to see the whole album as a book
   cover.jpg, page-01.jpg …   the pages (screen size, not for print)
-  layout.json    the plan: which photo is where (used by the print PDF, 2.3)
+  layout.json    the plan: which photo is where (used by the print PDF)
+
+When the album looks right, make the print files with album/print_pdf.py (2.3).
 """
 
 import base64
@@ -71,8 +73,8 @@ def build(photos, design, title, folder, cover=None):
     album = layout.make_album(results, design, title, cover)
     box = render.PhotoBox(photos)
     folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob("*.jpg"):
-        old.unlink()   # pages from an earlier build of this album
+    for old in [*folder.glob("*.jpg"), *folder.glob("print-*.pdf")]:
+        old.unlink()   # pages and print files from an earlier build of this album
 
     files = ["cover.jpg"]
     _save(render.draw_page(album.cover, album, box, PREVIEW_PIXELS_PER_MM), folder / files[0])
