@@ -24,6 +24,10 @@ orders.DELETE_DELAY_SECONDS = 0
 
 # Most checks here are about other steps and send only a few photos, so the
 # "only N photos, add more?" question (FewPhotosTest) is turned down for them.
+GOOD_COVER = {"ok": True, "problem": None, "dpi": 300, "without_hd": False}
+SMALL_COVER = {"ok": False, "problem": "small", "dpi": 146, "without_hd": True}
+
+
 def setUpModule():
     global _real_few
     _real_few = orders.conversation.FEW_PHOTOS
@@ -107,10 +111,19 @@ def photo(n):
 class OrdersTest(unittest.TestCase):
     def setUp(self):
         self.db = FakeDatabase()
-        self.orders = orders.Orders(self.db)
+        self.covers = []
+        self.orders = orders.Orders(self.db, on_cover=lambda *a: self.covers.append(a))
 
     def say(self, kind, value=None):
         return self.orders.answer(PHONE, kind, value, TEXTS)
+
+    def check_covers(self, result=GOOD_COVER):
+        """Like cover_check.py: the cover photo is saved, then checked (task 2.5)."""
+        replies = []
+        while self.covers:
+            phone, order_id, number = self.covers.pop(0)
+            replies += self.orders.cover_checked(phone, order_id, number, result, TEXTS)
+        return replies
 
     def send_photos(self, count, start=1):
         for n in range(start, start + count):
@@ -118,6 +131,7 @@ class OrdersTest(unittest.TestCase):
             if job:
                 order_id, number = job
                 orders.save_photo(self.db, FakeWhatsApp(), order_id, number, photo(n))
+                self.check_covers()
 
     def test_60_photos_are_all_saved(self):
         self.say("text", "שלום")
@@ -207,14 +221,19 @@ class AlbumReadyTest(unittest.TestCase):
     def setUp(self):
         self.db = FakeDatabase()
         self.ready = []
-        self.orders = orders.Orders(self.db, on_ready=lambda *a: self.ready.append(a))
+        self.covers = []
+        self.orders = orders.Orders(self.db, on_ready=lambda *a: self.ready.append(a),
+                                    on_cover=lambda *a: self.covers.append(a))
 
-    def say(self, kind, value=None):
+    def say(self, kind, value=None, cover=None):
         replies, job = self.orders.answer(PHONE, kind, value, TEXTS)
         if job:   # like bot.py: save the photo, then say it's done
             orders.save_photo(self.db, FakeWhatsApp(), job[0], job[1], value)
-            self.orders.photo_done(job[0])
+            self.orders.photo_done(job[0], job[1])
+            replies += self.check_covers(cover or GOOD_COVER)
         return replies
+
+    check_covers = OrdersTest.check_covers
 
     def finish(self, first=1, count=3):
         for n in range(first, first + count):
@@ -260,20 +279,48 @@ class AlbumReadyTest(unittest.TestCase):
 
     def test_new_cover_photo_is_waited_for(self):
         # The owner's round 3 test: the album was rebuilt before the new cover
-        # photo was saved, so it kept the old cover.
+        # photo was saved, so it kept the old cover. Since task 2.5 the album
+        # starts only after the new cover is saved AND checked.
         self.say("text", "שלום")
         self.say("button", "design_classic")
         self.finish()
         self.say("button", "cover_no")
         order_id = self.db.orders[0]["id"]
-        waited = []
-        self.orders.on_ready = lambda phone, order: waited.append(
-            self.orders.wait_for_photos(order, timeout=0.01))
         self.orders.answer(PHONE, "button", "edit_cover", TEXTS)
         replies, job = self.orders.answer(PHONE, "photo", photo(20), TEXTS)
-        self.assertEqual(waited, [False])          # the album would wait for it
-        self.orders.photo_done(order_id)           # bot.py calls this once it's saved
-        self.assertTrue(self.orders.wait_for_photos(order_id, timeout=0.01))
+        self.assertIn("בודקים", replies[0]["text"])
+        self.assertEqual(len(self.ready), 1)               # not built yet
+        self.assertEqual(self.covers, [(PHONE, order_id, job[1])])
+        self.assertFalse(self.orders.wait_for_photos(order_id, 0.01, number=job[1]))
+        self.orders.photo_done(order_id, job[1])           # bot.py calls this once it's saved
+        self.assertTrue(self.orders.wait_for_photos(order_id, 0.01, number=job[1]))
+        replies = self.check_covers()
+        self.assertEqual(self.ready[-1], (PHONE, order_id))  # now the album is built
+        self.assertEqual(len(self.ready), 2)
+        self.assertEqual(self.db.orders[0]["step"], "done")
+        self.assertIn(f"cover_photo:{job[1]}", self.db.orders[0]["notes"])
+
+    def test_small_cover_photo_kept(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        replies = self.say("photo", photo(1), cover=SMALL_COVER)
+        self.assertIn("HD", replies[-1]["text"])
+        self.assertEqual(self.db.orders[0]["step"], "cover_problem")
+        self.say("button", "cover_keep")
+        self.assertIn("cover_kept", self.db.orders[0]["notes"])
+        self.assertIn("cover_photo:1", self.db.orders[0]["notes"])
+
+    def test_cover_check_restarts_after_a_bot_restart(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.orders.answer(PHONE, "photo", photo(1), TEXTS)   # the Mac turns off mid-check
+        covers = []
+        restarted = orders.Orders(self.db, on_cover=lambda *a: covers.append(a))
+        replies, _ = restarted.answer(PHONE, "text", "נו?", TEXTS)
+        self.assertIn("עוד רגע", replies[0]["text"])
+        self.assertEqual(covers, [(PHONE, self.db.orders[0]["id"], 1)])
+        restarted.answer(PHONE, "text", "נו?", TEXTS)
+        self.assertEqual(len(covers), 1)                       # started once
 
     def test_wait_for_photos(self):
         self.orders.photo_saving("o1")

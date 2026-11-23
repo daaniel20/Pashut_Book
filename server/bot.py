@@ -6,6 +6,7 @@ Task 1.3: save orders and photos in Supabase (orders.py, database.py).
 Task 2.2: when an order is complete, check the photos and build the album (album_job.py).
 Task 2.4: then send the customer a private link to the album's preview
 (album_job.py), and show that page at /album/<code> (preview_links.py).
+Task 2.5: check the cover photo as soon as it arrives (cover_check.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -37,6 +38,7 @@ from urllib.parse import parse_qs, urlparse
 import conversation
 import preview_links
 from album_job import AlbumJobs
+from cover_check import CoverChecks
 from database import Database, DatabaseError
 from orders import Orders, save_photo
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
@@ -147,7 +149,7 @@ def save_photo_safely(order_id, number, media):
     except Exception:
         log.exception("Something went wrong while saving a photo")
     finally:
-        orders.photo_done(order_id)   # the album waits for this
+        orders.photo_done(order_id, number)   # the album and the cover check wait for this
 
 
 def handle_notice(data):
@@ -302,6 +304,7 @@ def main():
         return f"{public_url}/album/{code}"
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start
+    orders.on_cover = CoverChecks(orders, send, TEXTS).start
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

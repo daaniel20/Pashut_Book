@@ -15,8 +15,18 @@ from settings import load_texts  # noqa: E402
 TEXTS = load_texts("he")
 
 
-def talk(state, kind, value=None):
-    return conversation.answer(state, kind, value, TEXTS)
+GOOD_COVER = {"ok": True, "problem": None, "dpi": 300, "without_hd": False}
+
+
+def talk(state, kind, value=None, cover=GOOD_COVER):
+    """One message from the customer. A cover photo is then checked at once
+    (in the bot this happens in the background, task 2.5), with this result;
+    cover=None leaves it waiting at the "checking…" step."""
+    replies = conversation.answer(state, kind, value, TEXTS)
+    number = conversation.checking_cover(state)
+    if cover and number:
+        replies = replies + conversation.cover_checked(state, number, cover, TEXTS)
+    return replies
 
 
 def button_ids(message):
@@ -50,8 +60,9 @@ class ConversationTest(unittest.TestCase):
         self.assertIn("כריכה", replies[0]["text"])
 
         first = talk(state, "photo")             # the cover photo
-        self.assertIn("40", first[0]["text"])    # "send 40-100 photos"
-        self.assertEqual(button_ids(first[0]), ["photos_done"])
+        self.assertIn("בודקים", first[0]["text"])  # "got it, checking…" (task 2.5)
+        self.assertIn("40", first[1]["text"])    # checked: "send 40-100 photos"
+        self.assertEqual(button_ids(first[1]), ["photos_done"])
         self.assertEqual(conversation.cover_photo(state), 1)
         for _ in range(59):
             self.assertEqual(talk(state, "photo"), [])  # quiet, no reply per photo
@@ -237,7 +248,7 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "done")
         self.assertEqual(state["photos"], count + 1)              # also goes inside
         self.assertEqual(conversation.cover_photo(state), count + 1)
-        self.assertEqual(button_ids(replies[0]), ["confirm", "edit_menu"])
+        self.assertEqual(button_ids(replies[-1]), ["confirm", "edit_menu"])
 
     def test_keep_the_cover_photo(self):
         state = self.finished_order()
@@ -248,6 +259,88 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "done")
         self.assertEqual(conversation.cover_photo(state), 1)
         self.assertNotIn("editing", state["notes"])
+
+    def start_cover(self):
+        """A new customer who just sent their cover photo; the check isn't done yet."""
+        state = conversation.new_state()
+        talk(state, "text", "היי")
+        talk(state, "button", "design_classic")
+        replies = talk(state, "photo", cover=None)
+        self.assertEqual(state["step"], "cover_check")
+        self.assertIn("בודקים", replies[0]["text"])
+        return state
+
+    def test_cover_check_good(self):
+        state = self.start_cover()
+        self.assertIsNone(conversation.cover_photo(state))       # not yet accepted
+        self.assertIn("עוד רגע", talk(state, "text", "נו?", cover=None)[0]["text"])
+        self.assertEqual(talk(state, "photo", cover=None), [])   # the rest, counted quietly
+        self.assertEqual(state["photos"], 2)
+        replies = conversation.cover_checked(state, 1, GOOD_COVER, TEXTS)
+        self.assertEqual(state["step"], "photos")
+        self.assertEqual(conversation.cover_photo(state), 1)
+        self.assertIn("יפה", replies[0]["text"])
+        self.assertEqual(conversation.cover_checked(state, 1, GOOD_COVER, TEXTS), [])  # only once
+
+    def test_cover_check_failed_accepts_the_photo(self):
+        state = self.start_cover()
+        conversation.cover_checked(state, 1, None, TEXTS)       # e.g. album tools missing
+        self.assertEqual((state["step"], conversation.cover_photo(state)), ("photos", 1))
+
+    def test_small_cover_without_hd_send_again(self):
+        state = self.start_cover()
+        small = {"ok": False, "problem": "small", "dpi": 146, "without_hd": True}
+        replies = conversation.cover_checked(state, 1, small, TEXTS)
+        self.assertEqual(state["step"], "cover_problem")
+        self.assertIn("HD", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["cover_new", "cover_keep"])
+        self.assertEqual(replies[0]["buttons"][0]["title"], TEXTS["button_cover_new_hd"])
+        self.assertEqual(button_ids(talk(state, "text", "מה?")[0]), ["cover_new", "cover_keep"])
+        talk(state, "button", "cover_new")
+        self.assertEqual(state["step"], "cover_photo")
+        replies = talk(state, "photo")                           # sent again in HD: good
+        self.assertEqual((state["step"], state["photos"]), ("photos", 2))
+        self.assertEqual(conversation.cover_photo(state), 2)     # the first stays inside
+        self.assertNotIn("cover_kept", state["notes"])
+
+    def test_blurry_cover_photo_instead_of_tapping(self):
+        state = self.start_cover()
+        blurry = {"ok": False, "problem": "blurry", "dpi": 300, "without_hd": False}
+        replies = conversation.cover_checked(state, 1, blurry, TEXTS)
+        self.assertIn("מטושטשת", replies[0]["text"])
+        self.assertNotIn("HD", replies[0]["text"])
+        talk(state, "photo", cover=None)                         # a new photo = the new cover
+        self.assertEqual(conversation.checking_cover(state), 2)
+
+    def test_keep_a_small_cover(self):
+        state = self.start_cover()
+        small = {"ok": False, "problem": "small", "dpi": 120, "without_hd": False}
+        conversation.cover_checked(state, 1, small, TEXTS)
+        replies = talk(state, "button", "cover_keep")
+        self.assertEqual((state["step"], conversation.cover_photo(state)), ("photos", 1))
+        self.assertIn("cover_kept", state["notes"])
+        self.assertIn("קטנה", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+
+    def test_small_new_cover_from_the_summary(self):
+        state = self.finished_order()
+        talk(state, "button", "edit_cover")
+        talk(state, "photo", cover=None)
+        small = {"ok": False, "problem": "small", "dpi": 120, "without_hd": False}
+        conversation.cover_checked(state, state["photos"], small, TEXTS)
+        self.assertEqual(conversation.cover_photo(state), 1)     # the old cover, until decided
+        talk(state, "button", "cover_new")
+        replies = talk(state, "button", "keep_cover")            # "keep as it was"
+        self.assertEqual((state["step"], conversation.cover_photo(state)), ("done", 1))
+        self.assertEqual(button_ids(replies[0]), ["confirm", "edit_menu"])
+        # And keeping the small one goes straight back to the summary.
+        talk(state, "button", "edit_cover")
+        talk(state, "photo", cover=None)
+        conversation.cover_checked(state, state["photos"], small, TEXTS)
+        replies = talk(state, "button", "cover_keep")
+        self.assertEqual(state["step"], "done")
+        self.assertEqual(conversation.cover_photo(state), state["photos"])
+        self.assertIn("cover_kept", state["notes"])
 
     def test_photos_before_design_first_one_is_the_cover(self):
         state = conversation.new_state()
@@ -332,7 +425,8 @@ class ConversationTest(unittest.TestCase):
                     "button_cover_yes", "button_cover_no",
                     "button_edit_title", "button_edit_design",
                     "button_edit_cover", "button_keep_cover", "button_preview_ok",
-                    "button_preview_link"]:
+                    "button_preview_link", "button_cover_new", "button_cover_new_hd",
+                    "button_cover_keep"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):

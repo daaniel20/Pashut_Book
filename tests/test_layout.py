@@ -214,9 +214,34 @@ class CoverTest(unittest.TestCase):
                          (0, 0, designs.PAGE_WIDTH, designs.PAGE_HEIGHT))
         self.assertIn("012", placed(album))          # also inside the album
 
+    def test_small_cover_photo_is_shown_smaller(self):
+        # Task 2.5: the owner's cover printed at 146 DPI (a wide photo without HD).
+        selfie = photo("selfie", (2048, 1152), [(0.55, 0.35, 0.12, 0.2)])
+        self.assertLess(layout.cover_dpi(selfie), 150)
+        album = layout.make_album([selfie] + fake_photos(20), "classic", "x", cover="selfie")
+        spot = album.cover.spots[0]
+        self.assertEqual((spot.photo, album.title_place), ("selfie", "below"))
+        self.assertGreater(spot.x, 0)                 # not edge to edge
+        self.assertEqual(spot.crop, (0, 0, 1, 1))     # the whole photo, sharp enough
+        self.assertIn("shown smaller", album.notes[0])
+        # Without HD but upright: fine edge to edge (1536 px across 20 cm = 195 DPI).
+        self.assertEqual(layout.cover_dpi(photo("p", UPRIGHT)), 195)
+
+    def test_kept_blurry_cover_is_used_smaller(self):
+        blurry = photo("b", (3000, 4000), grade="skip")
+        blurry.problems = ["blurry"]
+        album = layout.make_album([blurry] + fake_photos(20), "classic", None, cover="b")
+        self.assertNotEqual(album.cover.spots[0].photo, "b")   # not kept: another photo
+        album = layout.make_album([blurry] + fake_photos(20), "classic", None, cover="b",
+                                  cover_kept=True)
+        self.assertEqual(album.cover.spots[0].photo, "b")
+        self.assertEqual(album.title_place, "below")
+        self.assertNotIn("b", placed(album))             # still left out inside
+
     def test_wide_cover_photo_goes_edge_to_edge(self):
         # Owner's test: a wide selfie (face right of centre) fell back to a small photo.
-        selfie = photo("selfie", (2048, 1152), [(0.55, 0.35, 0.12, 0.2)])
+        # (In HD: the same photo without HD is too small for the cover, see below.)
+        selfie = photo("selfie", (4096, 2304), [(0.55, 0.35, 0.12, 0.2)])
         album = layout.make_album([selfie] + fake_photos(20), "classic", "אילת 2026",
                                   cover="selfie")
         spot = album.cover.spots[0]
@@ -225,7 +250,7 @@ class CoverTest(unittest.TestCase):
         self.assertLessEqual(x, 0.55 - 0.06)              # the face and room around it
         self.assertGreaterEqual(x + w, 0.67)
         # Faces at both edges of a wide photo: still the smaller cover, nobody cut.
-        group = photo("group", (2048, 1152), [(0.02, 0.3, 0.1, 0.15), (0.88, 0.3, 0.1, 0.15)])
+        group = photo("group", (4096, 2304), [(0.02, 0.3, 0.1, 0.15), (0.88, 0.3, 0.1, 0.15)])
         album = layout.make_album([group] + fake_photos(20), "classic", "x", cover="group")
         self.assertEqual(album.title_place, "below")
 

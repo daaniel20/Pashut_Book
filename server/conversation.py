@@ -6,6 +6,14 @@ The steps, in order:
   design   -> waiting for the customer to pick a design
   cover_photo -> waiting for 1 photo for the cover (task 2.2). It is also used
               inside the album. Its number is kept in the notes as "cover_photo:N".
+  cover_check -> (task 2.5) the cover photo arrived: "got it, checking…". The bot
+              checks it in the background (cover_check.py) and calls cover_checked().
+              Photos sent meanwhile are counted as album photos.
+              Good -> "photos" (or back to the summary). Too small or blurry ->
+  cover_problem -> buttons [send another photo] [continue with this one].
+              Continuing adds the note "cover_kept": the album shows it smaller.
+              The photo being checked is "cover_check:N"; it becomes the cover
+              ("cover_photo:N") only once it is accepted.
   photos   -> waiting for photos, until the customer taps "done"
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
@@ -121,6 +129,22 @@ def answer(state, kind, value, texts):
             state["step"] = "cover_photo"
         return messages
 
+    if step == "cover_check":
+        return [_text(t["cover_still_checking"])]
+
+    if step == "cover_problem":
+        if _tapped(kind, value, words, "cover_new", t["button_cover_new"]) or \
+                _tapped(kind, value, words, "cover_new", t["button_cover_new_hd"]):
+            state["step"] = "cover_photo"
+            _set_note(state, "cover_check", None)
+            _set_note(state, "cover_problem", None)
+            if "editing" in state["notes"]:
+                return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+            return [_text(t["ask_cover_photo"])]
+        if _tapped(kind, value, words, "cover_keep", t["button_cover_keep"]):
+            return _cover_accepted(state, t, kept=True)
+        return [cover_problem_message(t, _note(state, "cover_problem"))]
+
     if step == "cover_photo":
         if "editing" in state["notes"]:
             if (kind == "button" and value == "keep_cover") or words == _clean(t["button_keep_cover"]):
@@ -217,16 +241,46 @@ def answer(state, kind, value, texts):
 
 def cover_photo(state):
     """The number of the photo the customer chose for the cover, or None."""
-    for note in state["notes"]:
-        if note.startswith("cover_photo:"):
-            return int(note.split(":")[1])
-    return None
+    number = _note(state, "cover_photo")
+    return None if number is None else int(number)
 
 
 def set_cover_photo(state, number):
-    state["notes"][:] = [n for n in state["notes"] if not n.startswith("cover_photo:")]
-    if number is not None:
-        state["notes"].append(f"cover_photo:{number}")
+    _set_note(state, "cover_photo", number)
+
+
+def checking_cover(state):
+    """The number of the cover photo being checked (step "cover_check"), or None."""
+    number = _note(state, "cover_check")
+    return None if number is None or state["step"] != "cover_check" else int(number)
+
+
+def cover_checked(state, number, result, t):
+    """The cover check (task 2.5) is done: the messages to send.
+    result is {"ok", "problem", "without_hd", ...} from album/check_cover.py, or
+    None if it couldn't be checked (then the photo is accepted: the album
+    still shows a too-small photo smaller, and the owner checks every album).
+    Returns [] if the customer has meanwhile moved on."""
+    if checking_cover(state) != number:
+        return []
+    if not result or result.get("ok"):
+        return _cover_accepted(state, t, kept=False)
+    problem = result.get("problem") or "small"
+    if problem == "small" and result.get("without_hd"):
+        problem = "small_hd"
+    state["step"] = "cover_problem"
+    _set_note(state, "cover_problem", problem)
+    return [cover_problem_message(t, problem)]
+
+
+def cover_problem_message(t, problem):
+    """The cover photo is too small or blurry: send another, or continue with it?"""
+    problem = problem if problem in ("small", "small_hd", "blurry") else "small"
+    new = t["button_cover_new_hd"] if problem == "small_hd" else t["button_cover_new"]
+    return {"text": t["cover_problem_" + problem], "buttons": [
+        {"id": "cover_new", "title": new},
+        {"id": "cover_keep", "title": t["button_cover_keep"]},
+    ]}
 
 
 def after_previews(t):
@@ -282,15 +336,19 @@ def _on_photo(state, t):
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
         return _after_done(state, t)
-    if step == "cover_photo":
+    if step in ("cover_photo", "cover_problem"):
         # The cover photo is also an album photo. A new cover chosen from the
         # summary may go one over the limit; the old cover stays inside.
+        # (In "cover_problem", a photo instead of a tap is the new cover photo.)
         state["photos"] += 1
-        set_cover_photo(state, state["photos"])
-        if "editing" in state["notes"]:
-            return _finish(state, t)
-        state["step"] = "photos"
-        return [_done_button(t, t["cover_photo_saved"].format(max=MAX_PHOTOS))]
+        state["step"] = "cover_check"
+        _set_note(state, "cover_check", state["photos"])
+        _set_note(state, "cover_problem", None)
+        return [_text(t["cover_checking"])]
+    if step == "cover_check" and state["photos"] < MAX_PHOTOS:
+        # The rest of the album, sent while the cover is checked: counted quietly.
+        state["photos"] += 1
+        return []
     if state["photos"] >= MAX_PHOTOS:
         return _once(state, "photo_limit", [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))])
     state["photos"] += 1
@@ -300,6 +358,37 @@ def _on_photo(state, t):
         return [_done_button(t, t["first_photo"])]
     # Customers send many photos; we stay quiet instead of answering each one.
     return []
+
+
+def _cover_accepted(state, t, kept):
+    """The photo being checked becomes the cover (it's fine, or the customer kept it)."""
+    set_cover_photo(state, _note(state, "cover_check"))
+    _set_note(state, "cover_check", None)
+    _set_note(state, "cover_problem", None)
+    while "cover_kept" in state["notes"]:
+        state["notes"].remove("cover_kept")
+    if kept:
+        state["notes"].append("cover_kept")   # the album shows it smaller, so it stays sharp
+    if "editing" in state["notes"]:
+        return _finish(state, t)
+    state["step"] = "photos"
+    text = t["cover_kept"] if kept else t["cover_photo_saved"]
+    return [_done_button(t, text.format(max=MAX_PHOTOS))]
+
+
+def _note(state, name):
+    """The value of a "name:value" note, or None."""
+    for note in state["notes"]:
+        if note.startswith(name + ":"):
+            return note.split(":", 1)[1]
+    return None
+
+
+def _set_note(state, name, value):
+    """Set (or with None, remove) a "name:value" note."""
+    state["notes"][:] = [n for n in state["notes"] if not n.startswith(name + ":")]
+    if value is not None:
+        state["notes"].append(f"{name}:{value}")
 
 
 def _after_done(state, t):
@@ -331,7 +420,9 @@ def _resend_photos(state):
     state["photos"] = 0
     state["resend_photos"] = True
     set_cover_photo(state, None)   # the album picks a cover from the new photos
-    for note in ("photo_limit", "not_a_photo"):
+    _set_note(state, "cover_check", None)
+    _set_note(state, "cover_problem", None)
+    for note in ("photo_limit", "not_a_photo", "cover_kept"):
         if note in state["notes"]:
             state["notes"].remove(note)
 
