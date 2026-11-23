@@ -180,7 +180,7 @@ class FacesTest(unittest.TestCase):
             name, order = layout._best_template(group, [], False, style)
             page = layout._page(name, order, "", style)
             for spot in page.spots:
-                self.assertGreater(spot.height, 0.45 * designs.PAGE_HEIGHT, name)
+                self.assertGreaterEqual(min(spot.width, spot.height), layout.MIN_PHOTO_MM, name)
 
     def test_whole_albums_keep_every_face(self):
         rng = random.Random(3)

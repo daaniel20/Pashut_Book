@@ -20,6 +20,9 @@ MIN_PAGES = 20      # inside pages, without the cover (placeholder until S.2)
 MAX_PAGES = 40
 PAGE_MULTIPLE = 2   # printers need an even number of pages (some need 4)
 PHOTOS_PER_PAGE = 2.5   # on average, when there are enough photos
+# About this part of the pages has one photo from edge to edge (no background).
+# Owner's choice: start with 20%.
+EDGE_TO_EDGE_SHARE = 0.2
 
 # A photo spot is "small" when its longest side is at most this part of the
 # page. Lower-quality photos (grade "small" in quality.py) go only there.

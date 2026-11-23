@@ -10,7 +10,7 @@ Needs Pillow (see requirements.txt).
 
 from io import BytesIO
 
-from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 import designs
 import layout
@@ -74,37 +74,57 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
     image.paste(photo, (x, y), mask)
 
 
-# The band behind the cover title, over the photo: how solid it is (0-255).
-BAND_OPACITY = 215
+# The cover title over the photo: no band (owner's feedback: the band hid part
+# of the photo). White letters with a soft shadow; dark letters on a very
+# bright part of the photo (sky, a white wall).
+TITLE_TEXT_HEIGHT = 0.5      # the letters use this part of the title area's height
+BRIGHT = 170                 # brighter than this (0-255) behind the title: dark letters
 
 
 def _draw_title(image, album, style, ppm):
-    """The cover title: on a soft band over the photo (top or bottom, where
-    there are no faces), or in the space under a smaller photo."""
+    """The cover title: straight on the photo (top or bottom, where there are
+    no faces), or in the space under a smaller photo."""
     photo_spot = album.cover.spots[0]
-    if album.title_place in ("top", "bottom"):
-        band = layout.TITLE_BAND * album.height * ppm
-        top = 0 if album.title_place == "top" else image.height - band
-        bottom = top + band
-        left, right = style["margin"] * ppm, image.width - style["margin"] * ppm
-        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        colour = ImageColor.getrgb(style["cover_background"]) + (BAND_OPACITY,)
-        ImageDraw.Draw(overlay).rectangle((0, top, image.width, bottom), fill=colour)
-        image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
+    on_photo = album.title_place in ("top", "bottom")
+    if on_photo:
+        area = layout.TITLE_BAND * album.height * ppm
+        top = 0 if album.title_place == "top" else image.height - area
+        bottom = top + area
+        left, right = style["margin"] * 2 * ppm, image.width - style["margin"] * 2 * ppm
+        height_used = TITLE_TEXT_HEIGHT
     else:
         top = (photo_spot.y + photo_spot.height) * ppm
         bottom = (album.height - photo_spot.y) * ppm
         left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
+        height_used = 0.8
     box_w, box_h = right - left, bottom - top
-    lines, font = _fit_text(album.title, style, box_w, box_h * 0.8)
-    draw = ImageDraw.Draw(image)
+    lines, font = _fit_text(album.title, style, box_w, box_h * height_used)
     line_h = font.size * 1.25
+    places = []
     y = top + (box_h - line_h * len(lines)) / 2
     for line in lines:
         text = visual_order(line)
-        width = draw.textlength(text, font=font)
-        draw.text((left + (box_w - width) / 2, y), text, font=font, fill=style["title_color"])
+        width = ImageDraw.Draw(image).textlength(text, font=font)
+        places.append(((left + (box_w - width) / 2, y), text))
         y += line_h
+    if not on_photo:
+        draw = ImageDraw.Draw(image)
+        for xy, text in places:
+            draw.text(xy, text, font=font, fill=style["title_color"])
+        return
+    behind = image.crop((int(left), int(top), int(right), int(bottom))).convert("L")
+    bright = ImageStat.Stat(behind).mean[0] > BRIGHT
+    letters, shade = ((34, 34, 34), (255, 255, 255, 150)) if bright else \
+                     ((255, 255, 255), (0, 0, 0, 160))
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shadow)
+    for (x, y), text in places:
+        draw.text((x, y + font.size * 0.03), text, font=font, fill=shade)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(font.size * 0.08))
+    image.paste(Image.alpha_composite(image.convert("RGBA"), shadow).convert("RGB"))
+    draw = ImageDraw.Draw(image)
+    for xy, text in places:
+        draw.text(xy, text, font=font, fill=letters)
 
 
 def _fit_text(text, style, width, height):
