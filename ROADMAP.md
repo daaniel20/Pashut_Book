@@ -73,6 +73,15 @@ gantt
 | S.7 | **5 albums for friends and family at FULL price** | 🙋 | Weeks 3–6 | 5 delivered and tracked |
 | S.8 | **5 albums for strangers** from a small paid ad test. *The ad plan will be made from scratch in a separate session.* | 🙋 | Weeks 3–6 | 5 delivered and tracked |
 
+### Shipping and quality check: two phases
+
+The owner approves every album **on screen** before printing (the design). The two phases cover the **printed book**:
+
+1. **The first ~10 albums (S.7 and S.8):** the printer sends each book **to the owner** (or the owner picks it up). The owner checks it (colors, cutting, dark photos, binding), then ships it or hands it over. Goal: learn what printing problems look like, and make sure no customer gets a bad book. Log the extra minutes in the tracking sheet (S.6).
+2. **After that:** the printer ships **straight to the customer**. The owner still approves every album on screen, and picks up a sample book now and then (or asks the printer for a phone photo of the finished book).
+
+This applies to any printer: local, or Prodigi.
+
 ---
 
 ## 🛠️ Build track
