@@ -129,6 +129,8 @@ class AlbumJobs:
             return
         previews = result.get("previews") or []
         if not previews or not self.make_link:
+            log.warning("Album %s: no preview images to send (is the album tool up to date? "
+                        "run git pull)", name)
             return
         t = self.texts
         url = self.make_link(result)
