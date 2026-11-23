@@ -4,6 +4,7 @@ Task 1.1: receive WhatsApp messages and reply.
 Task 1.2: the Hebrew conversation with buttons (the steps are in conversation.py).
 Task 1.3: save orders and photos in Supabase (orders.py, database.py).
 Task 2.2: when an order is complete, check the photos and build the album (album_job.py).
+Task 2.4: then send the customer the watermarked page previews (album_job.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -125,11 +126,15 @@ def is_new_message(message_id):
 
 
 def send(to, message):
+    """Send one message. Returns True if Meta accepted it."""
     try:
         whatsapp.send(to, message)
-        log.info("Reply sent to %s", mask_phone(to))
-    except WhatsAppError as error:
-        log.error("Could not send a reply: %s", error)
+        log.info("%s sent to %s", "Image" if message.get("image_file") else "Reply",
+                 mask_phone(to))
+        return True
+    except (WhatsAppError, OSError) as error:
+        log.error("Could not send a message: %s", error)
+        return False
 
 
 def save_photo_safely(order_id, number, media):

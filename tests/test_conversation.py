@@ -292,12 +292,32 @@ class ConversationTest(unittest.TestCase):
         replies = talk(state, "text", "תודה")
         self.assertEqual(button_ids(replies[0]), ["edit_menu"])
 
+    def test_after_previews(self):
+        # album_job.py sent the previews and added this note (task 2.4).
+        state = self.finished_order()
+        state["notes"].append("previews_sent")
+        replies = talk(state, "text", "וואו")
+        self.assertEqual(button_ids(replies[0]), ["preview_ok", "edit_menu"])
+        self.assertEqual(talk(state, "text", "וואו"), [])   # only once
+        replies = talk(state, "button", "preview_ok")
+        self.assertIn("תשלום", replies[0]["text"])
+        self.assertEqual(talk(state, "button", "preview_ok"), [])
+
+    def test_a_change_after_previews_sends_new_previews(self):
+        state = self.finished_order()
+        state["notes"] += ["previews_sent", "preview_ok"]
+        talk(state, "button", "edit_title")
+        talk(state, "text", "כותרת חדשה")
+        self.assertEqual(state["step"], "done")
+        for note in ("previews_sent", "preview_ok"):
+            self.assertNotIn(note, state["notes"])
+
     def test_button_titles_fit_whatsapp(self):
         # WhatsApp refuses button titles longer than 20 characters.
         for key in ["button_confirm", "design_classic", "design_colorful", "button_photos_done",
                     "button_cover_yes", "button_cover_no",
                     "button_edit_title", "button_edit_design",
-                    "button_edit_cover", "button_keep_cover"]:
+                    "button_edit_cover", "button_keep_cover", "button_preview_ok"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):
