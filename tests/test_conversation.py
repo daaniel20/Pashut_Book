@@ -292,6 +292,20 @@ class ConversationTest(unittest.TestCase):
         replies = talk(state, "text", "תודה")
         self.assertEqual(button_ids(replies[0]), ["edit_menu"])
 
+    def test_emojis_are_removed_from_the_title(self):
+        # The album's font can't print emojis: they showed as an empty box on the cover.
+        state = self.finished_order(title_button="cover_yes")
+        talk(state, "text", "📖 אלבום ניסוי 4 ❤️👨‍👩‍👧")
+        self.assertEqual(state["title"], "אלבום ניסוי 4")
+        self.assertEqual(conversation.printable("חופשה בְּאילת, 2026 ₪!"), "חופשה בְּאילת, 2026 ₪!")
+
+    def test_a_title_of_only_emojis_asks_again(self):
+        state = self.finished_order(title_button="cover_yes")
+        replies = talk(state, "text", "😍😍")
+        self.assertEqual(state["step"], "title")
+        self.assertIsNone(state["title"])
+        self.assertEqual(button_ids(replies[0]), ["cover_no", "add_photos"])
+
     def test_after_previews(self):
         # album_job.py sent the previews and added this note (task 2.4).
         state = self.finished_order()
