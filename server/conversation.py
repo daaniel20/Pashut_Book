@@ -35,6 +35,8 @@ All customer-facing words come from server/texts/<language>.json.
 Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 """
 
+import unicodedata
+
 # The two album designs. Their names for the customer are in the texts file
 # ("design_classic", "design_colorful").
 DESIGNS = ["classic", "colorful"]
@@ -43,6 +45,9 @@ MAX_PHOTOS = 100
 # (it's often an accidental tap). The customer can still continue.
 FEW_PHOTOS = 40
 MAX_TITLE_LENGTH = 40
+# Unicode kinds of characters the album can't print: emojis and other symbols
+# (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
+_NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
 
 
 def new_state():
@@ -341,8 +346,21 @@ def _pick_design(kind, value, words, t):
     return None
 
 
+def printable(text):
+    """The text without emojis and symbols: the album's fonts can't print them
+    (they would show as an empty box on the cover). Letters, digits, punctuation
+    and Hebrew vowel marks stay. Also tidies extra spaces and line breaks."""
+    kept = "".join(c for c in text if unicodedata.category(c) not in _NOT_PRINTABLE
+                   and c not in "\ufe0e\ufe0f\u200d\u20e3")
+    return " ".join(kept.split())
+
+
 def _save_title(state, value, t):
-    title = " ".join(value.split())  # tidy extra spaces and line breaks
+    title = printable(value)
+    if not title:
+        # Only emojis: there's nothing we can print.
+        state["step"] = "title"
+        return [_title_request(t)]
     if len(title) > MAX_TITLE_LENGTH:
         state["step"] = "title"
         return [_text(t["title_too_long"].format(length=len(title), max=MAX_TITLE_LENGTH))]

@@ -8,6 +8,7 @@ task 2.3), and small copies with a "PREVIEW" mark become the customer's previews
 Needs Pillow (see requirements.txt).
 """
 
+import unicodedata
 from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
@@ -141,7 +142,10 @@ def _draw_title(image, album, style, ppm):
         left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
         height_used = 0.8
     box_w, box_h = right - left, bottom - top
-    lines, font = _fit_text(album.title, style, box_w, box_h * height_used)
+    title = printable(album.title)
+    if not title:
+        return
+    lines, font = _fit_text(title, style, box_w, box_h * height_used)
     line_h = font.size * 1.25
     places = []
     y = top + (box_h - line_h * len(lines)) / 2
@@ -168,6 +172,15 @@ def _draw_title(image, album, style, ppm):
     draw = ImageDraw.Draw(image)
     for xy, text in places:
         draw.text(xy, text, font=font, fill=letters)
+
+
+def printable(text):
+    """Drop emojis and symbols the font can't draw (they'd print as an empty box).
+    The bot already removes them when the customer types the title; this also
+    covers titles given by hand (--title)."""
+    kept = "".join(c for c in text if unicodedata.category(c) not in ("So", "Sk", "Cs", "Co")
+                   and c not in "\ufe0e\ufe0f\u200d\u20e3")
+    return " ".join(kept.split())
 
 
 def _fit_text(text, style, width, height):
