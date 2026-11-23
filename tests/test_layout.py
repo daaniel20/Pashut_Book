@@ -214,6 +214,21 @@ class CoverTest(unittest.TestCase):
                          (0, 0, designs.PAGE_WIDTH, designs.PAGE_HEIGHT))
         self.assertIn("012", placed(album))          # also inside the album
 
+    def test_wide_cover_photo_goes_edge_to_edge(self):
+        # Owner's test: a wide selfie (face right of centre) fell back to a small photo.
+        selfie = photo("selfie", (2048, 1152), [(0.55, 0.35, 0.12, 0.2)])
+        album = layout.make_album([selfie] + fake_photos(20), "classic", "אילת 2026",
+                                  cover="selfie")
+        spot = album.cover.spots[0]
+        self.assertEqual((spot.x, spot.y, spot.width), (0, 0, designs.PAGE_WIDTH))
+        x, y, w, h = spot.crop
+        self.assertLessEqual(x, 0.55 - 0.06)              # the face and room around it
+        self.assertGreaterEqual(x + w, 0.67)
+        # Faces at both edges of a wide photo: still the smaller cover, nobody cut.
+        group = photo("group", (2048, 1152), [(0.02, 0.3, 0.1, 0.15), (0.88, 0.3, 0.1, 0.15)])
+        album = layout.make_album([group] + fake_photos(20), "classic", "x", cover="group")
+        self.assertEqual(album.title_place, "below")
+
     def test_title_band_never_covers_a_face(self):
         low_faces = photo("low", (3000, 3000), [(0.4, 0.82, 0.1, 0.1)])
         album = layout.make_album([low_faces] + fake_photos(20), "classic", "x", cover="low")
