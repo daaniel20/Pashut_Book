@@ -119,6 +119,8 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 A payment company, automatic changes, order tracking, more languages (each with its own campaign), a Lupa option, and a cloud server at around 30–50 albums a month.
 
+**Future add-on: more products from the same photos.** Once a customer has sent their photos, offer a calendar, a framed print, magnets or photo tiles made from them, with almost no extra work (bigger orders, more repeat orders). Details in README.md, "Open questions".
+
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
 - **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3 (see S.3 for the sample picture and example albums).
