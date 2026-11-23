@@ -7,9 +7,11 @@ so the same plan can later be drawn as preview images (2.4) or a print PDF (2.3)
 
 How it decides, in short:
 1. Leave out the "skip" photos (blurry, duplicates, too small).
-2. Decide how many pages (the printer's minimum, about 2-3 photos a page).
-3. Split the photos, in order, into page groups of 1-4 photos, with some
-   variety (a few single-photo pages between busier ones).
+2. Decide how many pages: about 2.5 photos a page, within the printer's
+   minimum and maximum.
+3. Split the photos, in order, into pages of 1-4 photos, looking at their
+   shapes: photos that fit together share a page (mixed shapes get 3-4 photos
+   so the page isn't empty), other photos get a page of their own.
 4. For each group, pick the template (designs.TEMPLATES) that crops the
    photos the least, with the rule: lower-quality photos only in small spots.
 5. Decide how to cut each photo to fit its spot, keeping every face in and
@@ -32,9 +34,22 @@ import designs
 # phone photo (3:4) fill a square spot.
 MAX_CUT = 0.26
 MAX_CUT_PEOPLE = 0.22
+# The cover is always edge to edge when it can be: a wide photo may lose up to
+# half (its sides) on the square cover, as long as every face stays in.
+# (Owner's test: a wide selfie fell back to a small photo with white around it.)
+MAX_CUT_COVER = 0.5
 # How much the layout choice cares about filling the page with photo rather
 # than background (owner's feedback: photos looked small on the page).
 FILL_WEIGHT = 1.0
+# Layouts that adapt to the photos' shapes, so every photo fills its spot
+# exactly (no cutting, no white gaps around a photo). Owner's feedback: a small
+# photo in a fixed spot of the wrong shape left white gaps (pages 1 and 5).
+#   flex_row2: 2 side by side   flex_col2: 2 stacked
+#   flex_side3: 1 big + 2 stacked beside it   flex_top3: 1 big + 2 below it
+#   flex_grid4: 2 rows of 2
+FLEX = {"flex_row2": 2, "flex_col2": 2, "flex_side3": 3, "flex_top3": 3, "flex_grid4": 4}
+# Planning pages: the cost of giving 2 neighbouring pages the same number of photos.
+REPEAT_COST = 0.15
 # No photo is shown smaller than this on its short side (mm), unless a page
 # has no other way to fit its photos.
 MIN_PHOTO_MM = 45
@@ -73,6 +88,9 @@ class Album:
     width: float
     height: float
     cover: Page
+    # Where the cover title goes: "bottom" or "top" (a band over the
+    # edge-to-edge photo, never over a face), or "below" (under a smaller photo).
+    title_place: str = "below"
     pages: list = field(default_factory=list)
     left_out: list = field(default_factory=list)   # names of photos not used
     notes: list = field(default_factory=list)      # things the owner should know
@@ -83,14 +101,28 @@ class Album:
             return {"template": p.template, "background": p.background,
                     "spots": [vars(s) for s in p.spots]}
         return {"design": self.design, "title": self.title,
-                "page_size_mm": [self.width, self.height],
+                "page_size_mm": [self.width, self.height], "title_place": self.title_place,
                 "cover": page(self.cover), "pages": [page(p) for p in self.pages],
                 "left_out": self.left_out, "notes": self.notes}
 
+    @classmethod
+    def from_dict(cls, data):
+        """The plan back from layout.json (the print PDF draws exactly what the
+        owner saw)."""
+        def page(p):
+            return Page(p["template"], p["background"],
+                        [Spot(**dict(s, crop=tuple(s["crop"]))) for s in p["spots"]])
+        width, height = data["page_size_mm"]
+        return cls(design=data["design"], title=data["title"], width=width, height=height,
+                   cover=page(data["cover"]), title_place=data["title_place"],
+                   pages=[page(p) for p in data["pages"]],
+                   left_out=data.get("left_out", []), notes=data.get("notes", []))
 
-def make_album(photos, design, title=None):
+
+def make_album(photos, design, title=None, cover=None):
     """photos: PhotoCheck results from quality.check_all(), in album order
-    (anything with .name, .width, .height and .grade works)."""
+    (anything with .name, .width, .height and .grade works).
+    cover: the name of the photo the customer chose for the cover, if any."""
     if design not in designs.DESIGNS:
         raise ValueError(f"Unknown design: {design}")
     style = designs.DESIGNS[design]
@@ -101,15 +133,22 @@ def make_album(photos, design, title=None):
     if not usable:
         raise ValueError("No usable photos")
 
-    album.cover = _cover(usable, style, title)
-    sizes = page_sizes(len(usable))
+    chosen = _cover_choice(photos, cover)
+    if cover and chosen is None:
+        album.notes.append(f"The customer's cover photo ({cover}) can't be used "
+                           "(blurry or too small): another photo was chosen.")
+    album.cover, album.title_place = _cover(usable, style, title, chosen)
+    full = pick_full_pages(usable, style, album.cover.spots[0].photo)
+    sizes = plan_pages(usable, style, full)
     recent = []   # templates of the last pages, for variety
     start = 0
     for number, size in enumerate(sizes):
         group = usable[start:start + size]
         start += size
-        allow_full = style["full_page"] and "full" not in recent[-3:]
-        name, order = _best_template(group, recent, allow_full, style)
+        if size == 1 and group[0].name in full:
+            name, order = "full", group
+        else:
+            name, order = _best_template(group, recent, False, style)
         recent.append(name)
         background = style["backgrounds"][number % len(style["backgrounds"])]
         album.pages.append(_page(name, order, background, style))
@@ -124,34 +163,127 @@ def make_album(photos, design, title=None):
     return album
 
 
-def page_sizes(count):
-    """How many photos go on each page, in order. Adds up to count."""
-    pages = math.ceil(count / designs.PHOTOS_PER_PAGE)
+def _cover_choice(photos, cover):
+    """The photo to put on the cover for the customer's choice, or None if it
+    can't be used. Being a duplicate never blocks the cover (the owner's test:
+    a new cover photo was also inside the album, so it was marked "duplicate")."""
+    chosen = next((p for p in photos if p.name == cover), None)
+    if chosen is None or chosen.grade != "skip":
+        return chosen
+    problems = set(getattr(chosen, "problems", []))
+    if "duplicate" in problems:
+        # Exactly the same photo twice: use the copy that was kept (same picture).
+        kept = next((p for p in photos if p.name == getattr(chosen, "duplicate_of", None)), None)
+        if kept is not None and kept.grade != "skip":
+            return kept
+    if problems and problems <= {"similar", "duplicate"}:
+        return chosen   # an almost-identical shot: they chose this one, so use it
+    return None
+
+
+def page_count(count):
+    """How many pages for this many photos: about 2.5 photos a page, an even
+    number, within the printer's minimum and maximum (and 1-4 photos a page)."""
+    pages = round(count / designs.PHOTOS_PER_PAGE)
     pages = max(designs.MIN_PAGES, min(designs.MAX_PAGES, pages))
-    pages = max(math.ceil(count / 4), min(pages, count))   # 1-4 photos a page
-    pages = min(pages, count)
-    # Spread the photos evenly first (e.g. 2, 3, 2, 3 …)
-    sizes = [(i + 1) * count // pages - i * count // pages for i in range(pages)]
-    # Then add variety: in every third pair of pages, move a photo from one
-    # page to the other (2+3 becomes 1+4: one big photo next to a busy page).
-    for pair in range(1, pages // 2, 3):
-        a, b = sorted((2 * pair, 2 * pair + 1), key=lambda i: sizes[i])
-        if sizes[a] > 1 and sizes[b] < 4:
-            sizes[a] -= 1
-            sizes[b] += 1
-    return sizes
+    pages = max(math.ceil(count / 4), min(pages, count))
+    if pages % designs.PAGE_MULTIPLE and pages + 1 <= count:
+        pages += 1
+    return pages
+
+
+def pick_full_pages(photos, style, cover_photo=None):
+    """The photos that get an edge-to-edge page of their own: about
+    EDGE_TO_EDGE_SHARE of the pages, spread through the album. The best
+    candidates: sharp, fill the page without cutting a face, with people."""
+    if not style["full_page"]:
+        return set()
+    wanted = round(designs.EDGE_TO_EDGE_SHARE * page_count(len(photos)))
+    page_aspect = designs.PAGE_WIDTH / designs.PAGE_HEIGHT
+
+    def badness(photo):
+        cut = _cut(photo, page_aspect, full_page=True)
+        if photo.grade != "ok" or cut is None or photo.name == cover_photo:
+            return None
+        return _crop_loss(photo, page_aspect) + (0 if getattr(photo, "faces", None) else 0.15)
+
+    chosen, last = set(), -99
+    for part in range(wanted):
+        # One from each part of the album, at least 3 photos after the last one.
+        start = max(part * len(photos) // wanted, last + 3)
+        end = (part + 1) * len(photos) // wanted
+        options = [(badness(photos[i]), i) for i in range(start, end)
+                   if badness(photos[i]) is not None]
+        if options:
+            _, last = min(options)
+            chosen.add(photos[last].name)
+    return chosen
+
+
+def plan_pages(photos, style, full=()):
+    """How many photos go on each page, in order (adds up to len(photos)).
+
+    Tries every way to split the photos into the right number of pages with
+    1-4 photos each, and keeps the one where the pages look best together
+    (photos big, little cut, little empty background). Fast: the score of each
+    possible page is worked out once."""
+    count, pages = len(photos), page_count(len(photos))
+    score = {}
+    for start in range(count):
+        for size in range(1, 5):
+            if start + size <= count:
+                group = photos[start:start + size]
+                if any(p.name in full for p in group):
+                    if size == 1:
+                        score[start, size] = 0   # an edge-to-edge page: alone
+                    continue
+                score[start, size] = _best_choice(group, [], False, style)[0]
+    # best[p][i, last] = (total score, size of the page before) for the first i
+    # photos on p pages, the last page holding `last` photos.
+    best = [{(0, 0): (0, 0)}]
+    for p in range(1, pages + 1):
+        row = {}
+        for (i, last), (total, _) in best[p - 1].items():
+            for size in range(1, 5):
+                if (i + size) > count - (pages - p) or (i, size) not in score:
+                    continue    # leave at least 1 photo for every page still to come
+                new = total + score[i, size]
+                if size == last:
+                    new += REPEAT_COST   # variety: not the same number on every page
+                key = (i + size, size)
+                if key not in row or new < row[key][0]:
+                    row[key] = (new, last)
+        best.append(row)
+    ends = [key for key in best[pages] if key[0] == count]
+    if not ends:
+        return plan_pages(photos, style)   # can't fit the edge-to-edge pages: plan without
+    end = min(ends, key=lambda k: best[pages][k][0])
+    sizes, (i, size) = [], end
+    for p in range(pages, 0, -1):
+        sizes.append(size)
+        i, size = i - size, best[p][(i, size)][1]
+    return sizes[::-1]
 
 
 # ---------- choosing a template for one page ----------
 
 def _best_template(group, recent, allow_full, style):
     """Returns (template name, photos in spot order)."""
+    _, name, order = _best_choice(group, recent, allow_full, style)
+    return name, order
+
+
+def _best_choice(group, recent, allow_full, style):
+    """Returns (score, template name, photos in spot order). Lower score = better."""
     best = None
-    for name, spots in designs.TEMPLATES.items():
-        if len(spots) != len(group) or (name == "full" and not allow_full):
+    names = [n for n, spots in designs.TEMPLATES.items() if len(spots) == len(group)]
+    names += [n for n, size in FLEX.items() if size == len(group)]
+    for name in names:
+        if name == "full" and not allow_full:
             continue
-        shapes = _spot_shapes(name, style)
+        fixed = None if name in FLEX else _spot_shapes(name, style)
         for order in _orders(group):
+            shapes = fixed or _shapes(_flex_spots(name, order, style))
             if any(photo.grade != "ok" and not shape[1]
                    for photo, shape in zip(order, shapes)):
                 continue    # a lower-quality photo in a big spot: not allowed
@@ -167,7 +299,7 @@ def _best_template(group, recent, allow_full, style):
             for photo, (aspect, _, width, height), cut in zip(order, shapes, cuts):
                 loss = _crop_loss(photo, aspect)
                 if cut is None:
-                    cost += 2 * loss + 0.2
+                    cost += 3 * loss + 0.3   # white gaps around it: avoid
                     width, height = _whole_size(photo, width, height)
                 else:
                     cost += loss
@@ -186,7 +318,7 @@ def _best_template(group, recent, allow_full, style):
                 score -= 0.1       # a full-page photo now and then looks great
             if best is None or score < best[0]:
                 best = (score, name, order)
-    return best[1], best[2]
+    return best
 
 
 def _orders(group):
@@ -206,7 +338,62 @@ def _spot_shapes(name, style):
     """(width / height, is it small?, width, height) for each spot of a template,
     on the real page (mm)."""
     page = _page(name, [None] * len(designs.TEMPLATES[name]), "", style)
-    return [(s.width / s.height, s.small, s.width, s.height) for s in page.spots]
+    return _shapes(page.spots)
+
+
+def _shapes(spots):
+    return [(s.width / s.height, s.small, s.width, s.height) for s in spots]
+
+
+# ---------- layouts that adapt to the photos' shapes ----------
+
+def _flex_spots(name, photos, style):
+    """Spots for a FLEX layout: each photo keeps its own shape, the photos
+    touch with an even gap, and the whole block is as big as fits inside the
+    margins, in the middle of the page."""
+    margin, gap = style["margin"], style["gap"]
+    inner_w = designs.PAGE_WIDTH - 2 * margin
+    inner_h = designs.PAGE_HEIGHT - 2 * margin
+    a = [p.width / p.height if p and p.width and p.height else 1 for p in photos]
+    boxes = []   # (x, y, w, h) inside the block, left to right
+    if name == "flex_row2":
+        h = min((inner_w - gap) / (a[0] + a[1]), inner_h)
+        boxes = [(0, 0, a[0] * h, h), (a[0] * h + gap, 0, a[1] * h, h)]
+    elif name == "flex_col2":
+        w = min((inner_h - gap) / (1 / a[0] + 1 / a[1]), inner_w)
+        boxes = [(0, 0, w, w / a[0]), (0, w / a[0] + gap, w, w / a[1])]
+    elif name == "flex_side3":
+        k = 1 / (1 / a[1] + 1 / a[2])           # the 2-photo column's width per height
+        h = min((inner_w - gap + gap * k) / (a[0] + k), inner_h)
+        big_w, col_w = a[0] * h, (h - gap) * k
+        boxes = [(0, 0, big_w, h), (big_w + gap, 0, col_w, col_w / a[1]),
+                 (big_w + gap, col_w / a[1] + gap, col_w, col_w / a[2])]
+    elif name == "flex_top3":
+        both = a[1] + a[2]
+        w = min((inner_h - gap + gap / both) / (1 / a[0] + 1 / both), inner_w)
+        big_h, row_h = w / a[0], (w - gap) / both
+        boxes = [(0, 0, w, big_h), (0, big_h + gap, a[1] * row_h, row_h),
+                 (a[1] * row_h + gap, big_h + gap, a[2] * row_h, row_h)]
+    elif name == "flex_grid4":
+        top, bottom = a[0] + a[1], a[2] + a[3]
+        w = min(gap + (inner_h - gap) / (1 / top + 1 / bottom), inner_w)
+        h1, h2 = (w - gap) / top, (w - gap) / bottom
+        boxes = [(0, 0, a[0] * h1, h1), (a[0] * h1 + gap, 0, a[1] * h1, h1),
+                 (0, h1 + gap, a[2] * h2, h2), (a[2] * h2 + gap, h1 + gap, a[3] * h2, h2)]
+    block_w = max(x + w for x, y, w, h in boxes)
+    block_h = max(y + h for x, y, w, h in boxes)
+    left = margin + (inner_w - block_w) / 2
+    top = margin + (inner_h - block_h) / 2
+    longest_page_side = max(designs.PAGE_WIDTH, designs.PAGE_HEIGHT)
+    spots = []
+    for photo, (x, y, w, h) in zip(photos, boxes):
+        x = left + x
+        if designs.RIGHT_TO_LEFT:
+            x = designs.PAGE_WIDTH - x - w
+        spots.append(Spot(photo=getattr(photo, "name", None), x=round(x, 2),
+                          y=round(top + y, 2), width=round(w, 2), height=round(h, 2),
+                          small=max(w, h) <= designs.SMALL_SPOT * longest_page_side))
+    return spots
 
 
 def _whole_size(photo, width, height):
@@ -227,7 +414,7 @@ def _crop_loss(photo, spot_aspect):
 
 # ---------- cutting a photo to fit its spot ----------
 
-def _cut(photo, spot_aspect, full_page=False):
+def _cut(photo, spot_aspect, full_page=False, cover=False):
     """The part of the photo to show in a spot of this shape: (x, y, w, h) as
     parts of the photo. None if it can't be cut without losing a face or too
     much of the photo: then the whole photo is shown, smaller."""
@@ -238,6 +425,8 @@ def _cut(photo, spot_aspect, full_page=False):
     # A photo with people is trimmed less, except on an edge-to-edge page, which
     # must be filled (an upright phone photo on a square page loses 25%).
     limit = MAX_CUT_PEOPLE if faces and not full_page else MAX_CUT
+    if cover:
+        limit = MAX_CUT_COVER   # the cover may lose more, as long as every face stays in
     if _crop_loss(photo, spot_aspect) > limit:
         return None
     if aspect > spot_aspect:            # wider than the spot: cut the sides
@@ -287,6 +476,11 @@ def _fit_inside(spot, photo):
 
 def _page(name, photos, background, style):
     page = Page(name, background)
+    if name in FLEX:
+        page.spots = _flex_spots(name, photos, style)
+        for spot, photo in zip(page.spots, photos):
+            _fit_photo(spot, photo)
+        return page
     if name == "full":
         margin, gap = 0, 0
     else:
@@ -324,17 +518,44 @@ def _fit_photo(spot, photo, full_page=False):
         spot.crop = cut
 
 
-def _cover(usable, style, title):
-    """The front cover: an early good photo that fits the space well, with room
-    for the title below it."""
+# Where the cover title goes: this part of the page height, at the top or
+# bottom of the photo. No face may be there.
+TITLE_BAND = 0.22
+
+
+def _cover(usable, style, title, chosen=None):
+    """The front cover: the customer's chosen photo (or an early good photo)
+    edge to edge, with the title on a band where there are no faces.
+    Returns (page, title place)."""
+    width, height = designs.PAGE_WIDTH, designs.PAGE_HEIGHT
+    candidates = [chosen] if chosen else ([p for p in usable if p.grade == "ok"][:10]
+                                          or usable[:1])
+    for photo in candidates:
+        cut = _cut(photo, width / height, full_page=True, cover=True)
+        place = _title_place(photo, cut) if cut and title else "none"
+        if cut and place:
+            cover = Page("cover", style["cover_background"])
+            cover.spots.append(Spot(photo=photo.name, x=0, y=0, width=width,
+                                    height=height, small=False, crop=cut))
+            return cover, place if title else "none"
+    # No photo fits edge to edge without cutting a face: a smaller photo,
+    # with the title under it.
+    photo = candidates[0]
     margin = style["margin"] * 1.5
-    text_height = designs.PAGE_HEIGHT * 0.2 if title else 0
-    width = designs.PAGE_WIDTH - 2 * margin
-    height = designs.PAGE_HEIGHT - 2 * margin - text_height
-    good = [p for p in usable if p.grade == "ok"][:10] or usable[:1]
-    photo = next((p for p in good if _cut(p, width / height)), good[0])
+    text_height = height * 0.2 if title else 0
     cover = Page("cover", style["cover_background"])
-    cover.spots.append(Spot(photo=photo.name, x=margin, y=margin,
-                            width=width, height=height, small=False))
+    cover.spots.append(Spot(photo=photo.name, x=margin, y=margin, width=width - 2 * margin,
+                            height=height - 2 * margin - text_height, small=False))
     _fit_photo(cover.spots[0], photo)
-    return cover
+    return cover, "below"
+
+
+def _title_place(photo, cut):
+    """"bottom" or "top": where the title band covers no face. None if both would."""
+    cx, cy, cw, ch = cut
+    faces = [((y - cy) / ch, (y + h - cy) / ch) for x, y, w, h in getattr(photo, "faces", [])]
+    if all(bottom <= 1 - TITLE_BAND for top, bottom in faces):
+        return "bottom"
+    if all(top >= TITLE_BAND for top, bottom in faces):
+        return "top"
+    return None

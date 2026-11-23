@@ -4,12 +4,18 @@ and what the bot answers.
 The steps, in order:
   new      -> the customer's first message: welcome + design buttons
   design   -> waiting for the customer to pick a design
+  cover_photo -> waiting for 1 photo for the cover (task 2.2). It is also used
+              inside the album. Its number is kept in the notes as "cover_photo:N".
   photos   -> waiting for photos, until the customer taps "done"
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
-              The summary has buttons to change the title or the design: that goes
-              back to the "title" or "design" step, then straight to a new summary.
+              The summary has two buttons: "all correct" (a short thank-you) and
+              "change something", which opens a list (title, design, cover photo,
+              add photos): that goes back to the "title", "design", "cover_photo"
+              or "photos" step, then straight to a new summary.
+  The cover-title question and the title step also have an "add photos" button,
+  for customers who tapped "done" too early.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
 
@@ -18,6 +24,8 @@ This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 
 Every answer is a list of messages. A message is a dict:
   {"text": "...", "buttons": [{"id": "...", "title": "..."}]}   ("buttons" is optional)
+or, for a WhatsApp list (one button that opens up to 10 choices):
+  {"text": "...", "list": {"button": "...", "rows": [{"id": "...", "title": "..."}]}}
 
 All customer-facing words come from server/texts/<language>.json.
 Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
@@ -27,6 +35,9 @@ Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 # ("design_classic", "design_colorful").
 DESIGNS = ["classic", "colorful"]
 MAX_PHOTOS = 100
+# Fewer photos than this: when "done" is tapped, ask once whether to add more
+# (it's often an accidental tap). The customer can still continue.
+FEW_PHOTOS = 40
 MAX_TITLE_LENGTH = 40
 
 
@@ -46,7 +57,9 @@ def read_message(message):
     if kind == "text":
         return "text", message.get("text", {}).get("body", "")
     if kind == "interactive":
-        reply = message.get("interactive", {}).get("button_reply") or {}
+        # A tapped button, or a choice from a list: both are handled the same way.
+        interactive = message.get("interactive", {})
+        reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
         return "button", reply.get("id", "")
     if kind == "image":
         return "photo", _media(message.get("image", {}))
@@ -87,26 +100,52 @@ def answer(state, kind, value, texts):
         if "editing" in state["notes"]:
             # They came back from the summary to change the design.
             return _finish(state, t)
-        state["step"] = "photos"
         messages = [_text(t["design_chosen"].format(
             design=t["design_" + design], max=MAX_PHOTOS))]
         if state["photos"]:
-            messages.append(_done_button(t, t["photos_so_far"].format(count=state["photos"])))
+            # They sent photos before choosing a design: the first one is the cover.
+            set_cover_photo(state, 1)
+            state["step"] = "photos"
+            messages[0] = _text(messages[0]["text"].rsplit("\n\n", 1)[0])
+            messages.append(_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"]))))
+        else:
+            state["step"] = "cover_photo"
         return messages
 
+    if step == "cover_photo":
+        if "editing" in state["notes"]:
+            if (kind == "button" and value == "keep_cover") or words == _clean(t["button_keep_cover"]):
+                return _finish(state, t)
+            return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+        return [_text(t["ask_cover_photo"])]
+
     if step == "photos":
-        if (kind == "button" and value == "photos_done") or words in _word_list(t, "done_words"):
+        few_ok = _tapped(kind, value, words, "few_photos_ok", t["button_few_photos_ok"])
+        if few_ok:
+            state["notes"].append("few_photos_ok")
+        if few_ok or (kind == "button" and value == "photos_done") or words in _word_list(t, "done_words"):
             if state["photos"] == 0:
                 return [_text(t["no_photos_yet"])]
+            if state["photos"] == 1 and cover_photo(state) == 1:
+                # Only the cover photo so far: that's not an album yet.
+                return [_done_button(t, t["only_cover_photo"])]
+            if state["photos"] < FEW_PHOTOS and "few_photos_ok" not in state["notes"]:
+                return [_few_photos_buttons(t, state)]
             if "cover_asked" in state["notes"]:
                 # They already answered about the cover (they're resending photos in HD).
                 return _finish(state, t)
             state["step"] = "cover"
             state["notes"].append("cover_asked")
             return [_cover_buttons(t, state)]
+        if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
+            return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
         if kind == "other":
             return _once(state, "not_a_photo", [_done_button(t, t["not_a_photo"])])
         return [_done_button(t, t["photos_reminder"])]
+
+    if _tapped(kind, value, words, "add_photos", t["button_add_photos"]) and step in ("cover", "title"):
+        # They tapped "done" too early: back to sending photos.
+        return _back_to_photos(state, t)
 
     if step == "cover":
         if (kind == "button" and value == "cover_no") or words in _word_list(t, "no_words"):
@@ -146,7 +185,34 @@ def answer(state, kind, value, texts):
         state["step"] = "design"
         state["notes"].append("editing")
         return [_design_buttons(t, t["choose_design"])]
-    return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+    if (kind == "button" and value == "edit_cover") or words == _clean(t["button_edit_cover"]):
+        state["step"] = "cover_photo"
+        state["notes"].append("editing")
+        return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+    if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
+        return _back_to_photos(state, t)
+    if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
+        return [_edit_list(t, t["choose_edit"])]
+    if _tapped(kind, value, words, "confirm", t["button_confirm"]):
+        if "confirmed" in state["notes"]:
+            return []
+        state["notes"].append("confirmed")
+        return [_text(t["confirmed"])]
+    return _once(state, "after_done", [_change_button(t, t["after_done"])])
+
+
+def cover_photo(state):
+    """The number of the photo the customer chose for the cover, or None."""
+    for note in state["notes"]:
+        if note.startswith("cover_photo:"):
+            return int(note.split(":")[1])
+    return None
+
+
+def set_cover_photo(state, number):
+    state["notes"][:] = [n for n in state["notes"] if not n.startswith("cover_photo:")]
+    if number is not None:
+        state["notes"].append(f"cover_photo:{number}")
 
 
 def hd_question(t):
@@ -193,7 +259,16 @@ def _on_photo(state, t):
         state["photos"] = 1
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
-        return _once(state, "after_done", [_edit_buttons(t, t["after_done"])])
+        return _once(state, "after_done", [_change_button(t, t["after_done"])])
+    if step == "cover_photo":
+        # The cover photo is also an album photo. A new cover chosen from the
+        # summary may go one over the limit; the old cover stays inside.
+        state["photos"] += 1
+        set_cover_photo(state, state["photos"])
+        if "editing" in state["notes"]:
+            return _finish(state, t)
+        state["step"] = "photos"
+        return [_done_button(t, t["cover_photo_saved"].format(max=MAX_PHOTOS))]
     if state["photos"] >= MAX_PHOTOS:
         return _once(state, "photo_limit", [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))])
     state["photos"] += 1
@@ -205,11 +280,28 @@ def _on_photo(state, t):
     return []
 
 
+def _tapped(kind, value, words, button_id, button_title):
+    return (kind == "button" and value == button_id) or (kind == "text" and words == _clean(button_title))
+
+
+def _back_to_photos(state, t):
+    """Let the customer send more photos (from the cover question or the summary)."""
+    from_summary = state["step"] == "done" or "editing" in state["notes"]
+    state["step"] = "photos"
+    if not from_summary and "cover_asked" in state["notes"]:
+        # They haven't answered about the title yet: ask again after the photos.
+        state["notes"].remove("cover_asked")
+    if state["photos"] >= MAX_PHOTOS:
+        return [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))]
+    return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
+
+
 def _resend_photos(state):
     """Start the photos over. orders.py sees "resend_photos" and deletes the old ones."""
     state["step"] = "photos"
     state["photos"] = 0
     state["resend_photos"] = True
+    set_cover_photo(state, None)   # the album picks a cover from the new photos
     for note in ("photo_limit", "not_a_photo"):
         if note in state["notes"]:
             state["notes"].remove(note)
@@ -236,7 +328,7 @@ def _save_title(state, value, t):
 
 def _finish(state, t):
     state["step"] = "done"
-    for note in ("editing", "after_done"):
+    for note in ("editing", "after_done", "confirmed"):
         while note in state["notes"]:
             state["notes"].remove(note)
     summary = t["summary"].format(
@@ -244,7 +336,23 @@ def _finish(state, t):
         count=state["photos"],
         title=state["title"] or t["no_title"],
     )
-    return [_edit_buttons(t, summary)]
+    return [{"text": summary, "buttons": [
+        {"id": "confirm", "title": t["button_confirm"]},
+        {"id": "edit_menu", "title": t["button_edit"]},
+    ]}]
+
+
+def _photos(t, count):
+    """"תמונה אחת" or "12 תמונות": correct Hebrew for any number."""
+    return t["photos_one"] if count == 1 else t["photos_many"].format(count=count)
+
+
+def _few_photos_buttons(t, state):
+    return {"text": t["few_photos"].format(photos=_photos(t, state["photos"]), few=FEW_PHOTOS),
+            "buttons": [
+                {"id": "add_photos", "title": t["button_add_photos"]},
+                {"id": "few_photos_ok", "title": t["button_few_photos_ok"]},
+            ]}
 
 
 def _once(state, note, messages):
@@ -273,12 +381,23 @@ def _design_buttons(t, text):
     ]}
 
 
-def _edit_buttons(t, text):
-    """The summary's buttons: change the title or the design."""
-    return {"text": text, "buttons": [
+def _change_button(t, text):
+    return {"text": text, "buttons": [{"id": "edit_menu", "title": t["button_edit"]}]}
+
+
+def _edit_list(t, text):
+    """The "change something" list (WhatsApp allows only 3 buttons,
+    so the 4 choices are in a list that opens from one button)."""
+    return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"], "rows": [
         {"id": "edit_title", "title": t["button_edit_title"]},
         {"id": "edit_design", "title": t["button_edit_design"]},
-    ]}
+        {"id": "edit_cover", "title": t["button_edit_cover"]},
+        {"id": "add_photos", "title": t["button_add_photos"]},
+    ]}}
+
+
+def _keep_cover_button(t, text):
+    return {"text": text, "buttons": [{"id": "keep_cover", "title": t["button_keep_cover"]}]}
 
 
 def _done_button(t, text):
@@ -286,12 +405,15 @@ def _done_button(t, text):
 
 
 def _cover_buttons(t, state):
-    return {"text": t["ask_cover"].format(count=state["photos"]), "buttons": [
+    return {"text": t["ask_cover"].format(photos=_photos(t, state["photos"])), "buttons": [
         {"id": "cover_yes", "title": t["button_cover_yes"]},
         {"id": "cover_no", "title": t["button_cover_no"]},
+        {"id": "add_photos", "title": t["button_add_photos"]},
     ]}
 
 
 def _title_request(t):
-    return {"text": t["ask_title"].format(max=MAX_TITLE_LENGTH),
-            "buttons": [{"id": "cover_no", "title": t["button_cover_no"]}]}
+    return {"text": t["ask_title"].format(max=MAX_TITLE_LENGTH), "buttons": [
+        {"id": "cover_no", "title": t["button_cover_no"]},
+        {"id": "add_photos", "title": t["button_add_photos"]},
+    ]}

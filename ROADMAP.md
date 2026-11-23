@@ -43,11 +43,11 @@ gantt
     section 🛠️ Build: Stage 1
     First "Hello" bot                 :done, b1a, after b0c, 3d
     Hebrew flow + design buttons      :done, b1b, after b1a, 4d
-    Collect + store photos            :b1c, after b1b, 4d
+    Collect + store photos            :done, b1c, after b1b, 4d
 
     section 🛠️ Build: Stage 2
-    Photo quality check + sort        :b2a, after b1c, 5d
-    Templates as code + layout        :b2b, after b2a, 6d
+    Photo quality check + sort        :done, b2a, after b1c, 5d
+    Templates as code + layout        :done, b2b, after b2a, 6d
     Print PDF + watermarked previews  :b2c, after b2b, 4d
 
     section 🛠️ Build: Stage 3
@@ -66,7 +66,7 @@ gantt
 |---|---|---|---|---|
 | S.1 | Decide the **price, photo limit** (50 or 100), and **free changes** per album. Use the [ROI calculator (Google Sheet)](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit). | 🙋 + 🤝 | Week 1 | Decisions written in README.md |
 | S.2 | **Printer quote:** call or email 3 local printers about price, sizes, paper, PDF specifications, delivery time, and shipping | 🙋 | Weeks 1–2 | One printer chosen, with their file specifications |
-| S.3 | **2 templates ready** (Classic / Colorful) in the printer's page size. Used by hand now; the bot will copy the same look later. | 🙋 + 🤝 | Weeks 1–2 | Sample pages look good |
+| S.3 | **2 templates ready** (Classic / Colorful) in the printer's page size. Used by hand now; the bot copies the same look (only `album/designs.py` changes). Also: (1) make the 2 designs **clearly different** (e.g. calm and elegant vs. bright and playful; the first versions felt too basic and too similar); (2) a **sample picture** of the same page in both designs, side by side, sent by the bot before the design buttons; (3) a **full example album** for each design on pashutbook.com (free hosting, e.g. Cloudflare Pages; free stock photos with a business licence, **never** family or customer photos), opened from a **link button** in the bot. The same pages can go on the landing page (needed for 0.4) and in ads. | 🙋 + 🤝 | Weeks 1–2 | Sample pages look good, and a customer can see both designs before choosing |
 | S.4 | **Test album** printed from **WhatsApp HD photos**, including some full-page photos | 🙋 | Weeks 1–2 | You know whether HD photos print well enough at full-page size |
 | S.5 | **Set the fixed date** for the first paying strangers, and replace [DATE] in README.md and here | 🙋 | Week 2 | The date is written down |
 | S.6 | **Tracking sheet:** for every album, owner minutes spent, number of revision requests, price paid, and how the customer found us | 🤝 | Week 2 | The sheet is ready before the first album |
@@ -101,9 +101,10 @@ The printer and the test album are in the sales track (S.2, S.4).
 | # | Task | Who | Done when… |
 |---|---|---|---|
 | 2.1 ✅ | **Quality check:** blurry photos, duplicates, image size, sort by date. Guide: [docs/setup/2.1-quality-check.md](docs/setup/2.1-quality-check.md) | 🤝 | Bad photos in a test folder are flagged. ✅ Done Nov 22, 2026: 16-photo test on the Mac; burst shots removed, blurry limits raised to 80/150 after the test |
-| 2.2 | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ⏳ Code ready (Nov 22, 2026) with a placeholder 20×20 cm page and first-draft designs. The owner's first test (a real 38-photo album through the bot) worked, but photos were cut through faces and people; fixed with face finding, waiting for the re-test |
-| 2.3 | **Print PDF** in the printer's exact specifications | 🤝 | The printer accepts the file |
+| 2.2 ✅ | **Layout:** turn the 2 templates (S.3) into code and fill them automatically. Low-quality photos only in small spots. **Tell the customer about photo quality** in one short message, only when there's a problem (no per-photo table): e.g. "3 blurry and 2 repeated photos were left out"; if many photos came without HD (they arrive exactly 2048 px on the long side; with HD ~5000), ask them to resend with HD (buttons: [How do I send HD?] [Continue anyway]) before the album is built. Texts go in `server/texts/he.json`. Guide: [docs/setup/2.2-layout.md](docs/setup/2.2-layout.md) | 🤝 | A full album is created with no human help, and a customer with bad or non-HD photos gets the right short message. ✅ Done Nov 23, 2026: tested in 4 rounds on the owner's real album through the bot (faces never cut, fuller pages, 20% edge-to-edge pages, the customer chooses and can change the cover photo, HD question and left-out message work). The page size and look are still placeholders until S.2 and S.3 |
+| 2.3 ✅ | **Print PDF** in the printer's exact specifications. Guide: [docs/setup/2.3-print-pdf.md](docs/setup/2.3-print-pdf.md) | 🤝 | The printer accepts the file. ✅ Built Nov 23, 2026: `print-pages.pdf` + `print-cover.pdf` at 300 DPI with 3 mm bleed and a resolution check. The printer's rules are placeholders in `album/printer.py` until S.2; the final test is the chosen printer accepting the file (and a wrap-around hardcover with a spine, if needed) |
 | 2.4 | **Watermarked previews:** small, numbered page images sent in WhatsApp | 🤝 | You get the page images in WhatsApp |
+| 2.5 | **Check the cover photo when it arrives** (agreed in task 2.3, after the owner's cover printed at only 146 DPI: a wide, non-HD photo cut to the square cover). (1) Right after the cover photo comes in, a short message so the customer knows it arrived, e.g. "קיבלנו את התמונה 👍 בודקים שהיא מתאימה לכריכה, זה ייקח כמה שניות…". (2) The bot waits for the photo to download and checks it: too small for the cover (under 150 DPI after cutting to the cover's shape) or blurry. (3) Good → the usual "beautiful photo" answer. Not good → one short message with buttons [📷 לשלוח תמונה אחרת] [להמשיך עם התמונה הזאת]; if it's a non-HD photo (exactly 2048 px), explain how to send in HD instead. (4) "Continue anyway" → the cover shows the photo smaller (not edge to edge) so it stays sharp, with a note for the owner. Texts in `server/texts/he.json` | 🤝 | A too-small or blurry cover photo gets the right message within seconds, and the customer is never left wondering whether the photo arrived |
 
 ### Stage 3: First customers through the bot
 
@@ -120,7 +121,7 @@ A payment company, automatic changes, order tracking, more languages (each with 
 
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
-- **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3.
+- **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3 (see S.3 for the sample picture and example albums).
 - Letting customers rearrange photos themselves was considered and **rejected**: too hard in WhatsApp. They can ask for a simple change after the preview instead.
 
 ---

@@ -65,12 +65,20 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(len(album.pages) % designs.PAGE_MULTIPLE, 0)
         self.assertTrue(album.notes)
 
-    def test_page_sizes_add_up_and_have_variety(self):
-        for count in range(1, 101):
-            sizes = layout.page_sizes(count)
+    def test_page_plan_adds_up(self):
+        for count in (1, 5, 9, 20, 38, 60, 100):
+            photos = fake_photos(count)
+            sizes = layout.plan_pages(photos, designs.DESIGNS["colorful"])
             self.assertEqual(sum(sizes), count)
+            self.assertEqual(len(sizes), layout.page_count(count))
             self.assertTrue(all(1 <= s <= 4 for s in sizes))
-        self.assertIn(1, layout.page_sizes(60))   # some single-photo pages
+
+    def test_page_count_follows_the_photos(self):
+        self.assertEqual(layout.page_count(38), designs.MIN_PAGES)   # 15 → the minimum
+        self.assertEqual(layout.page_count(60), 24)
+        self.assertEqual(layout.page_count(100), 40)
+        for count in range(designs.MIN_PAGES, 101):
+            self.assertEqual(layout.page_count(count) % designs.PAGE_MULTIPLE, 0)
 
     def test_lower_quality_photos_only_in_small_spots(self):
         photos = fake_photos(60, small=set(range(1, 61, 3)))
@@ -172,7 +180,7 @@ class FacesTest(unittest.TestCase):
             name, order = layout._best_template(group, [], False, style)
             page = layout._page(name, order, "", style)
             for spot in page.spots:
-                self.assertGreater(spot.height, 0.45 * designs.PAGE_HEIGHT, name)
+                self.assertGreaterEqual(min(spot.width, spot.height), layout.MIN_PHOTO_MM, name)
 
     def test_whole_albums_keep_every_face(self):
         rng = random.Random(3)
@@ -192,6 +200,69 @@ class FacesTest(unittest.TestCase):
                     limit = (layout.MAX_CUT_PEOPLE if faces[spot.photo] and page.template != "full"
                              else layout.MAX_CUT)
                     self.assertLessEqual(cut_off, limit + 1e-6)
+
+
+class CoverTest(unittest.TestCase):
+    """Task 2.2: the customer chooses the cover photo; it goes edge to edge."""
+
+    def test_the_customers_cover_photo_edge_to_edge(self):
+        photos = fake_photos(30)
+        album = layout.make_album(photos, "colorful", "סבתא", cover="012")
+        spot = album.cover.spots[0]
+        self.assertEqual(spot.photo, "012")
+        self.assertEqual((spot.x, spot.y, spot.width, spot.height),
+                         (0, 0, designs.PAGE_WIDTH, designs.PAGE_HEIGHT))
+        self.assertIn("012", placed(album))          # also inside the album
+
+    def test_wide_cover_photo_goes_edge_to_edge(self):
+        # Owner's test: a wide selfie (face right of centre) fell back to a small photo.
+        selfie = photo("selfie", (2048, 1152), [(0.55, 0.35, 0.12, 0.2)])
+        album = layout.make_album([selfie] + fake_photos(20), "classic", "אילת 2026",
+                                  cover="selfie")
+        spot = album.cover.spots[0]
+        self.assertEqual((spot.x, spot.y, spot.width), (0, 0, designs.PAGE_WIDTH))
+        x, y, w, h = spot.crop
+        self.assertLessEqual(x, 0.55 - 0.06)              # the face and room around it
+        self.assertGreaterEqual(x + w, 0.67)
+        # Faces at both edges of a wide photo: still the smaller cover, nobody cut.
+        group = photo("group", (2048, 1152), [(0.02, 0.3, 0.1, 0.15), (0.88, 0.3, 0.1, 0.15)])
+        album = layout.make_album([group] + fake_photos(20), "classic", "x", cover="group")
+        self.assertEqual(album.title_place, "below")
+
+    def test_title_band_never_covers_a_face(self):
+        low_faces = photo("low", (3000, 3000), [(0.4, 0.82, 0.1, 0.1)])
+        album = layout.make_album([low_faces] + fake_photos(20), "classic", "x", cover="low")
+        self.assertEqual(album.title_place, "top")
+        high_faces = photo("high", (3000, 3000), [(0.4, 0.1, 0.1, 0.1)])
+        album = layout.make_album([high_faces] + fake_photos(20), "classic", "x", cover="high")
+        self.assertEqual(album.title_place, "bottom")
+
+    def test_faces_everywhere_title_goes_below_a_smaller_photo(self):
+        busy = photo("busy", (3000, 3000), [(0.4, 0.05, 0.1, 0.1), (0.4, 0.85, 0.1, 0.1)])
+        album = layout.make_album([busy] + fake_photos(20), "classic", "x", cover="busy")
+        self.assertEqual(album.title_place, "below")
+        self.assertGreater(album.cover.spots[0].x, 0)
+
+    def test_duplicate_never_blocks_the_cover(self):
+        # The owner's test: the new cover photo was also inside the album.
+        photos = fake_photos(20)
+        same = SimpleNamespace(name="044", width=3000, height=3000, grade="skip",
+                               problems=["duplicate"], duplicate_of="007")
+        album = layout.make_album(photos + [same], "classic", "x", cover="044")
+        self.assertEqual(album.cover.spots[0].photo, "007")    # the same picture
+        self.assertEqual(album.notes, [])
+        burst = SimpleNamespace(name="045", width=3000, height=3000, grade="skip",
+                                problems=["similar"], duplicate_of="007", faces=[])
+        album = layout.make_album(photos + [burst], "classic", "x", cover="045")
+        self.assertEqual(album.cover.spots[0].photo, "045")    # their chosen shot
+        self.assertNotIn("045", placed(album))                 # not twice inside
+        self.assertEqual(album.notes, [])
+
+    def test_blurry_cover_choice_falls_back_and_tells_the_owner(self):
+        photos = fake_photos(20, skip={3})
+        album = layout.make_album(photos, "classic", None, cover="003")
+        self.assertNotEqual(album.cover.spots[0].photo, "003")
+        self.assertTrue(album.notes)
 
 
 @unittest.skipIf(Image is None, "Pillow is not installed")

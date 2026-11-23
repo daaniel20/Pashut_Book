@@ -1,18 +1,19 @@
 """Draw the album's pages as images (task 2.2).
 
 Takes the plan from layout.py and the photos, and draws each page.
-For now it makes screen-size page images for the owner to look at.
-The same drawing at print resolution becomes the print PDF in task 2.3,
-and small copies with a "PREVIEW" mark become the customer's previews in 2.4.
+It makes screen-size page images for the owner to look at. The same
+drawing at print resolution, with bleed, becomes the print PDF (print_pdf.py,
+task 2.3), and small copies with a "PREVIEW" mark become the customer's previews in 2.4.
 
 Needs Pillow (see requirements.txt).
 """
 
 from io import BytesIO
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 import designs
+import layout
 
 try:
     from pillow_heif import register_heif_opener   # iPhone photos (HEIC)
@@ -40,17 +41,61 @@ class PhotoBox:
         return image.crop(box).resize((width, height), Image.Resampling.LANCZOS)
 
 
-def draw_page(page, album, photos, pixels_per_mm):
-    """One page as an image."""
+def draw_page(page, album, photos, pixels_per_mm, bleed=0):
+    """One page as an image. bleed (mm): extra picture around the page for the
+    printer to cut off (task 2.3). The background, and photos that reach the
+    edge, continue into it; everything else stays where it was."""
     style = designs.DESIGNS[album.design]
-    size = (round(album.width * pixels_per_mm), round(album.height * pixels_per_mm))
+    size = (round((album.width + 2 * bleed) * pixels_per_mm),
+            round((album.height + 2 * bleed) * pixels_per_mm))
     image = Image.new("RGB", size, page.background)
     for spot in page.spots:
-        _draw_photo(image, spot, photos, style, pixels_per_mm,
-                    framed=page.template != "full")
+        # A photo from edge to edge (full page, cover) has no frame or rounded corners.
+        framed = spot.x > 0 or spot.y > 0
+        if bleed:
+            spot = with_bleed(spot, album.width, album.height, bleed)
+        _draw_photo(image, spot, photos, style, pixels_per_mm, framed=framed)
     if page.template == "cover" and album.title:
-        _draw_title(image, album, style, pixels_per_mm)
+        # The title is placed on the page itself (without the bleed).
+        offset = round(bleed * pixels_per_mm)
+        inside = image.crop((offset, offset, image.width - offset, image.height - offset))
+        _draw_title(inside, album, style, pixels_per_mm)
+        image.paste(inside, (offset, offset))
     return image
+
+
+EDGE = 0.05   # mm: a spot this close to the page's edge touches it
+
+
+def with_bleed(spot, page_width, page_height, bleed):
+    """The spot moved by the bleed (the image is bigger), and stretched into the
+    bleed on every side that touches the page's edge. It shows a little more of
+    the photo there; if the photo has no more to show, it is zoomed in a little
+    (3 mm on a 20 cm page is 3%), never stretched out of shape."""
+    grow_left = bleed if spot.x <= EDGE else 0
+    grow_top = bleed if spot.y <= EDGE else 0
+    grow_right = bleed if spot.x + spot.width >= page_width - EDGE else 0
+    grow_bottom = bleed if spot.y + spot.height >= page_height - EDGE else 0
+    cx, cy, cw, ch = spot.crop
+    per_mm_x, per_mm_y = cw / spot.width, ch / spot.height
+    x0, x1 = cx - grow_left * per_mm_x, cx + cw + grow_right * per_mm_x
+    y0, y1 = cy - grow_top * per_mm_y, cy + ch + grow_bottom * per_mm_y
+    # Too big for the photo: show a smaller part (same shape), around the same middle.
+    shrink = min(1, 1 / (x1 - x0), 1 / (y1 - y0))
+    if shrink < 1:
+        mid_x, mid_y = (x0 + x1) / 2, (y0 + y1) / 2
+        half_w, half_h = (x1 - x0) * shrink / 2, (y1 - y0) * shrink / 2
+        x0, x1, y0, y1 = mid_x - half_w, mid_x + half_w, mid_y - half_h, mid_y + half_h
+    # Slide it back inside the photo.
+    move_x = max(0, -x0) - max(0, x1 - 1)
+    move_y = max(0, -y0) - max(0, y1 - 1)
+    x0, x1, y0, y1 = x0 + move_x, x1 + move_x, y0 + move_y, y1 + move_y
+    return layout.Spot(
+        photo=spot.photo, small=spot.small,
+        x=spot.x + bleed - grow_left, y=spot.y + bleed - grow_top,
+        width=spot.width + grow_left + grow_right,
+        height=spot.height + grow_top + grow_bottom,
+        crop=(max(0, x0), max(0, y0), min(1, x1) - max(0, x0), min(1, y1) - max(0, y0)))
 
 
 def _draw_photo(image, spot, photos, style, ppm, framed):
@@ -72,22 +117,57 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
     image.paste(photo, (x, y), mask)
 
 
+# The cover title over the photo: no band (owner's feedback: the band hid part
+# of the photo). White letters with a soft shadow; dark letters on a very
+# bright part of the photo (sky, a white wall).
+TITLE_TEXT_HEIGHT = 0.5      # the letters use this part of the title area's height
+BRIGHT = 170                 # brighter than this (0-255) behind the title: dark letters
+
+
 def _draw_title(image, album, style, ppm):
-    """The cover title, in the space under the cover photo."""
+    """The cover title: straight on the photo (top or bottom, where there are
+    no faces), or in the space under a smaller photo."""
     photo_spot = album.cover.spots[0]
-    top = (photo_spot.y + photo_spot.height) * ppm
-    bottom = (album.height - photo_spot.y) * ppm
-    left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
+    on_photo = album.title_place in ("top", "bottom")
+    if on_photo:
+        area = layout.TITLE_BAND * album.height * ppm
+        top = 0 if album.title_place == "top" else image.height - area
+        bottom = top + area
+        left, right = style["margin"] * 2 * ppm, image.width - style["margin"] * 2 * ppm
+        height_used = TITLE_TEXT_HEIGHT
+    else:
+        top = (photo_spot.y + photo_spot.height) * ppm
+        bottom = (album.height - photo_spot.y) * ppm
+        left, right = photo_spot.x * ppm, (album.width - photo_spot.x) * ppm
+        height_used = 0.8
     box_w, box_h = right - left, bottom - top
-    lines, font = _fit_text(album.title, style, box_w, box_h * 0.8)
-    draw = ImageDraw.Draw(image)
+    lines, font = _fit_text(album.title, style, box_w, box_h * height_used)
     line_h = font.size * 1.25
+    places = []
     y = top + (box_h - line_h * len(lines)) / 2
     for line in lines:
         text = visual_order(line)
-        width = draw.textlength(text, font=font)
-        draw.text((left + (box_w - width) / 2, y), text, font=font, fill=style["title_color"])
+        width = ImageDraw.Draw(image).textlength(text, font=font)
+        places.append(((left + (box_w - width) / 2, y), text))
         y += line_h
+    if not on_photo:
+        draw = ImageDraw.Draw(image)
+        for xy, text in places:
+            draw.text(xy, text, font=font, fill=style["title_color"])
+        return
+    behind = image.crop((int(left), int(top), int(right), int(bottom))).convert("L")
+    bright = ImageStat.Stat(behind).mean[0] > BRIGHT
+    letters, shade = ((34, 34, 34), (255, 255, 255, 150)) if bright else \
+                     ((255, 255, 255), (0, 0, 0, 160))
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shadow)
+    for (x, y), text in places:
+        draw.text((x, y + font.size * 0.03), text, font=font, fill=shade)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(font.size * 0.08))
+    image.paste(Image.alpha_composite(image.convert("RGBA"), shadow).convert("RGB"))
+    draw = ImageDraw.Draw(image)
+    for xy, text in places:
+        draw.text(xy, text, font=font, fill=letters)
 
 
 def _fit_text(text, style, width, height):
