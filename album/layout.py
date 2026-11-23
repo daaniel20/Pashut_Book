@@ -105,6 +105,19 @@ class Album:
                 "cover": page(self.cover), "pages": [page(p) for p in self.pages],
                 "left_out": self.left_out, "notes": self.notes}
 
+    @classmethod
+    def from_dict(cls, data):
+        """The plan back from layout.json (the print PDF draws exactly what the
+        owner saw)."""
+        def page(p):
+            return Page(p["template"], p["background"],
+                        [Spot(**dict(s, crop=tuple(s["crop"]))) for s in p["spots"]])
+        width, height = data["page_size_mm"]
+        return cls(design=data["design"], title=data["title"], width=width, height=height,
+                   cover=page(data["cover"]), title_place=data["title_place"],
+                   pages=[page(p) for p in data["pages"]],
+                   left_out=data.get("left_out", []), notes=data.get("notes", []))
+
 
 def make_album(photos, design, title=None, cover=None):
     """photos: PhotoCheck results from quality.check_all(), in album order
