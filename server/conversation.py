@@ -18,6 +18,10 @@ The steps, in order:
   for customers who tapped "done" too early.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
+  After the album is built, album_job.py sends the preview images (task 2.4) and
+  adds the note "previews_sent". The last preview message has the buttons
+  "love it" (a short thank-you; payment comes in task 3.2) and "change something"
+  (the same list as in the summary; the album is then built and sent again).
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -194,11 +198,16 @@ def answer(state, kind, value, texts):
     if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
         return [_edit_list(t, t["choose_edit"])]
     if _tapped(kind, value, words, "confirm", t["button_confirm"]):
+        if "previews_sent" in state["notes"]:
+            # The old summary button, tapped after the previews: same as "love it".
+            return _once(state, "preview_ok", [_text(t["preview_ok"])])
         if "confirmed" in state["notes"]:
             return []
         state["notes"].append("confirmed")
         return [_text(t["confirmed"])]
-    return _once(state, "after_done", [_change_button(t, t["after_done"])])
+    if _tapped(kind, value, words, "preview_ok", t["button_preview_ok"]):
+        return _once(state, "preview_ok", [_text(t["preview_ok"])])
+    return _after_done(state, t)
 
 
 def cover_photo(state):
@@ -213,6 +222,14 @@ def set_cover_photo(state, number):
     state["notes"][:] = [n for n in state["notes"] if not n.startswith("cover_photo:")]
     if number is not None:
         state["notes"].append(f"cover_photo:{number}")
+
+
+def after_previews(t):
+    """The message after the preview images (sent by album_job.py)."""
+    return {"text": t["preview_end"], "buttons": [
+        {"id": "preview_ok", "title": t["button_preview_ok"]},
+        {"id": "edit_menu", "title": t["button_edit"]},
+    ]}
 
 
 def hd_question(t):
@@ -259,7 +276,7 @@ def _on_photo(state, t):
         state["photos"] = 1
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
-        return _once(state, "after_done", [_change_button(t, t["after_done"])])
+        return _after_done(state, t)
     if step == "cover_photo":
         # The cover photo is also an album photo. A new cover chosen from the
         # summary may go one over the limit; the old cover stays inside.
@@ -278,6 +295,13 @@ def _on_photo(state, t):
         return [_done_button(t, t["first_photo"])]
     # Customers send many photos; we stay quiet instead of answering each one.
     return []
+
+
+def _after_done(state, t):
+    """The customer wrote (or sent a photo) after everything was collected."""
+    if "previews_sent" in state["notes"]:
+        return _once(state, "after_previews", [after_previews(t)])
+    return _once(state, "after_done", [_change_button(t, t["after_done"])])
 
 
 def _tapped(kind, value, words, button_id, button_title):
@@ -328,7 +352,9 @@ def _save_title(state, value, t):
 
 def _finish(state, t):
     state["step"] = "done"
-    for note in ("editing", "after_done", "confirmed"):
+    # The album is built again, and its new previews are sent.
+    for note in ("editing", "after_done", "confirmed", "previews_sent",
+                 "after_previews", "preview_ok"):
         while note in state["notes"]:
             state["notes"].remove(note)
     summary = t["summary"].format(

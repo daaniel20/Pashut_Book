@@ -149,6 +149,26 @@ class Orders:
                 log.error("Could not save order %s: %s", short(order_id), error)
             return True
 
+    def is_done(self, phone, order_id):
+        """True if this is still the customer's order and they are not in the
+        middle of changing something (step "done")."""
+        with self.lock_for(phone):
+            state = self._states.get(phone)
+            return bool(state and state["order_id"] == order_id and state["step"] == "done")
+
+    def add_note(self, phone, order_id, note):
+        """Add a note to the order (e.g. "previews_sent", task 2.4) and save it."""
+        with self.lock_for(phone):
+            state = self._states.get(phone)
+            if not state or state["order_id"] != order_id:
+                return
+            if note not in state["notes"]:
+                state["notes"].append(note)
+            try:
+                self.db.update_order(order_id, _fields(state))
+            except DatabaseError as error:
+                log.error("Could not save order %s: %s", short(order_id), error)
+
     def _load(self, phone):
         if phone not in self._states:
             row = self.db.latest_order(phone)

@@ -13,9 +13,16 @@ AlbumJobs.start(). In the background it:
 If the customer changes the title or design from the summary while the album
 is being built, it is built again when the current build ends.
 
-The album is built on this Mac, in output/albums/<order>/ (open album.html).
-The customer sees nothing more yet: the page previews are task 2.4, and the
-owner's approval is task 3.1.
+5. (task 2.4) sends the customer ONE message with the cover picture and a
+   button that opens a private web page with the whole album (small images with
+   a PREVIEW mark, two pages per image, numbered; see preview_links.py), then a
+   message with buttons [Love it] [Change something].
+   They are not sent if the customer is in the middle of changing something:
+   the album is built again when they finish, and the new previews are sent.
+
+The album is built on this Mac, in output/albums/<order>/ (open album.html;
+the customer's images are in its preview/ folder). The owner's approval before
+printing is task 3.1.
 
 The album tools need Pillow, so they run with the project's .venv Python, as a
 separate program. The bot itself still uses only Python's built-in tools.
@@ -41,9 +48,11 @@ TOOL_SECONDS = 20 * 60
 
 
 class AlbumJobs:
-    def __init__(self, orders, send, texts, run_tool=None):
+    def __init__(self, orders, send, texts, run_tool=None, make_link=None):
         self.orders = orders
-        self.send = send              # send(phone, message)
+        self.send = send              # send(phone, message) -> True if sent
+        # make_link(result) -> the web address of the album's preview page
+        self.make_link = make_link
         self.texts = texts
         self.run_tool = run_tool or run_album_tool
         self._running = set()
@@ -105,8 +114,35 @@ class AlbumJobs:
         if result and "pages" in result:
             log.info("✅ Album %s built: %s pages. Open %s/album.html",
                      name, result["pages"], result["folder"])
+            self.send_previews(phone, order_id, result)
         elif result:
             log.error("❌ Album %s was not built: %s", name, result.get("error"))
+
+    def send_previews(self, phone, order_id, result):
+        """Send the customer the link to the album's preview (task 2.4)."""
+        name = short(order_id)
+        with self._guard:
+            if order_id in self._again:
+                return   # it changed while building: the new album's previews come next
+        if not self.orders.is_done(phone, order_id):
+            log.info("Album %s: the customer is changing something; previews wait", name)
+            return
+        previews = result.get("previews") or []
+        if not previews or not self.make_link:
+            log.warning("Album %s: no preview images to send (is the album tool up to date? "
+                        "run git pull)", name)
+            return
+        t = self.texts
+        url = self.make_link(result)
+        message = {"text": t["preview_intro"].format(pages=result["pages"]),
+                   "link": {"button": t["button_preview_link"], "url": url},
+                   "image_file": previews[0]["file"]}   # the cover on top
+        if not self.send(phone, message):
+            log.error("❌ Album %s: the preview link was not sent", name)
+            return
+        self.send(phone, conversation.after_previews(t))
+        self.orders.add_note(phone, order_id, "previews_sent")
+        log.info("Album %s: sent the preview link", name)
 
 
 def needs_hd(info):

@@ -1,9 +1,15 @@
 """Talk to Meta's WhatsApp API: send messages, and download customers' photos.
 
+Task 2.4: also send a message with a button that opens a web address (the
+album's preview page), with a picture on top (the cover). The picture is first
+uploaded to Meta, privately (it gets a number, not a public web address), then
+sent. Meta deletes uploaded pictures by itself after 30 days.
+
 Uses only Python's built-in tools. The token comes from .env.
 """
 
 import json
+import uuid
 import urllib.error
 import urllib.request
 
@@ -24,8 +30,29 @@ class WhatsApp:
 
     def send(self, to, message):
         """Send one WhatsApp message: text, text with up to 3 buttons,
-        or text with a list (one button that opens up to 10 choices)."""
-        if message.get("list"):
+        or text with a list (one button that opens up to 10 choices),
+        or an image from this computer: {"image_file": path, "caption": "..."},
+        or text with a button that opens a web address, optionally with an image on top:
+        {"text": "...", "link": {"button": "...", "url": "..."}, "image_file": path}."""
+        if message.get("link"):
+            interactive = {
+                "type": "cta_url",
+                "body": {"text": message["text"]},
+                "action": {"name": "cta_url", "parameters": {
+                    "display_text": message["link"]["button"],
+                    "url": message["link"]["url"],
+                }},
+            }
+            if message.get("image_file"):
+                interactive["header"] = {"type": "image", "image": {
+                    "id": self.upload_image(message["image_file"])}}
+            payload = {"type": "interactive", "interactive": interactive}
+        elif message.get("image_file"):
+            payload = {"type": "image", "image": {
+                "id": self.upload_image(message["image_file"]),
+                "caption": message.get("caption", ""),
+            }}
+        elif message.get("list"):
             menu = message["list"]
             payload = {
                 "type": "interactive",
@@ -54,6 +81,23 @@ class WhatsApp:
         self._call(f"{self.api}/{self.phone_number_id}/messages",
                    json.dumps(payload).encode("utf-8"))
 
+    def upload_image(self, path):
+        """Upload a JPEG image to Meta. Returns its media ID (used to send it)."""
+        with open(path, "rb") as file:
+            data = file.read()
+        # A "multipart" form: the way websites upload files.
+        boundary = uuid.uuid4().hex
+        parts = []
+        for name, value in (("messaging_product", "whatsapp"), ("type", "image/jpeg")):
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"'
+                         f'\r\n\r\n{value}\r\n'.encode("utf-8"))
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+                     f'filename="page.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'.encode("utf-8"))
+        body = b"".join(parts) + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+        answer = self._call(f"{self.api}/{self.phone_number_id}/media", body, timeout=60,
+                            content_type=f"multipart/form-data; boundary={boundary}")
+        return json.loads(answer)["id"]
+
     def photo_info(self, media_id):
         """Ask Meta where a customer's photo is. Returns url, mime_type, file_size.
         The download address works for 5 minutes only."""
@@ -63,10 +107,10 @@ class WhatsApp:
         """Download the photo itself (it stays in memory, never on disk)."""
         return self._call(url, timeout=120)
 
-    def _call(self, url, data=None, timeout=20):
+    def _call(self, url, data=None, timeout=20, content_type="application/json"):
         headers = {"Authorization": f"Bearer {self.token}"}
         if data is not None:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = content_type
         request = urllib.request.Request(url, data=data, headers=headers,
                                          method="POST" if data is not None else "GET")
         try:

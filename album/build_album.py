@@ -22,6 +22,7 @@ It checks the photos (quality.py), plans the pages (layout.py) and draws them
   album.html     open it to see the whole album as a book
   cover.jpg, page-01.jpg …   the pages (screen size, not for print)
   layout.json    the plan: which photo is where (used by the print PDF)
+  preview/       the customer's small images with a PREVIEW mark (task 2.4)
 
 When the album looks right, make the print files with album/print_pdf.py (2.3).
 """
@@ -35,6 +36,7 @@ from pathlib import Path
 
 import designs
 import layout
+import preview
 import quality
 import render
 from check_photos import photos_from_folder, PROJECT_DIR
@@ -85,8 +87,9 @@ def build(photos, design, title, folder, cover=None):
     (folder / "layout.json").write_text(
         json.dumps(album.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
     _write_overview(folder, album, files, results, photos)
+    previews = preview.make_previews(folder, len(album.pages))
     info.update(pages=len(album.pages), design=design, folder=str(folder),
-                notes=album.notes)
+                notes=album.notes, previews=previews)
     return info
 
 
@@ -245,6 +248,7 @@ def main():
         for note in info["notes"]:
             print(f"⚠️ {note}")
         print(f"Open it:  open {folder / 'album.html'}")
+        print(f"Customer previews ({len(info['previews'])} images):  open {folder / preview.FOLDER}")
 
 
 if __name__ == "__main__":
