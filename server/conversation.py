@@ -266,8 +266,8 @@ def cover_checked(state, number, result, t):
     if not result or result.get("ok"):
         return _cover_accepted(state, t, kept=False)
     problem = result.get("problem") or "small"
-    if problem == "small" and result.get("without_hd"):
-        problem = "small_hd"
+    if problem in ("small", "low") and result.get("without_hd"):
+        problem += "_hd"
     state["step"] = "cover_problem"
     _set_note(state, "cover_problem", problem)
     return [cover_problem_message(t, problem)]
@@ -275,8 +275,9 @@ def cover_checked(state, number, result, t):
 
 def cover_problem_message(t, problem):
     """The cover photo is too small or blurry: send another, or continue with it?"""
-    problem = problem if problem in ("small", "small_hd", "blurry") else "small"
-    new = t["button_cover_new_hd"] if problem == "small_hd" else t["button_cover_new"]
+    if problem not in ("small", "small_hd", "low", "low_hd", "blurry"):
+        problem = "small"
+    new = t["button_cover_new_hd"] if problem.endswith("_hd") else t["button_cover_new"]
     return {"text": t["cover_problem_" + problem], "buttons": [
         {"id": "cover_new", "title": new},
         {"id": "cover_keep", "title": t["button_cover_keep"]},
@@ -362,6 +363,8 @@ def _on_photo(state, t):
 
 def _cover_accepted(state, t, kept):
     """The photo being checked becomes the cover (it's fine, or the customer kept it)."""
+    # "low": a bit less sharp but still fine full size, so it isn't made smaller.
+    full_size = (_note(state, "cover_problem") or "").startswith("low")
     set_cover_photo(state, _note(state, "cover_check"))
     _set_note(state, "cover_check", None)
     _set_note(state, "cover_problem", None)
@@ -372,7 +375,9 @@ def _cover_accepted(state, t, kept):
     if "editing" in state["notes"]:
         return _finish(state, t)
     state["step"] = "photos"
-    text = t["cover_kept"] if kept else t["cover_photo_saved"]
+    text = t["cover_photo_saved"]
+    if kept:
+        text = t["cover_kept_full"] if full_size else t["cover_kept"]
     return [_done_button(t, text.format(max=MAX_PHOTOS))]
 
 
