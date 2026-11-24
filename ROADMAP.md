@@ -128,7 +128,16 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 A payment company, automatic changes, order tracking, more languages (each with its own campaign), a Lupa option, and a cloud server at around 30–50 albums a month.
 
-**Future add-on: more products from the same photos.** Once a customer has sent their photos, offer a calendar, a framed print, magnets or photo tiles made from them, with almost no extra work (bigger orders, more repeat orders). Details in README.md, "Open questions".
+**Future add-on: more products** (researched Nov 24, 2026, in the business model talk; not planned yet). The rule: the best next products reuse **the same customers and the same photos**, not just the process, because our hard-to-copy asset is the audience and the brand. Each was scored on real pain, same customers, reuse of what's built (bot, photo checks, layout engine), same supplier, and repeat sales.
+1. **Family photo calendar: do first.** Same photos, bot, layout engine and printer (12 pages instead of 24). Strong season before Rosh Hashana (Israeli calendar makers work overtime then; family and baby photos are the favourite) and in January. Sold every year to past album customers, so almost no ad cost. Calendars are ~18% of photo product orders in one industry dataset.
+2. **Kindergarten / class end-of-year album: biggest growth bet.** Real pain: today one volunteer parent collects photos from the class WhatsApp group and designs the album. The bot can collect photos from every parent and build it automatically. One order = ~25–35 copies (good printer prices), and 30 families meet the brand at once. Watch: season May–June, existing competitors (Lupa, studios, Albume), and privacy (other people's children: every parent must agree).
+3. **Wall prints, magnets, photo tiles:** easy add-ons from the same photos (for example the cover photo for the wall).
+4. **Event album from guests' photos** (bar/bat mitzvah, wedding, brit): real pain (photos scattered among guests), WhatsApp fits Israeli guests. Later.
+5. **Memorial book:** real pain (choosing photos while grieving is hard), family sends photos and texts on WhatsApp. Only with a gentle, human tone; don't compete with free volunteer projects for bereaved families (e.g. "Album Or").
+6. **Grandma's recipe book:** family sends recipes, handwritten pages and voice notes; AI types them up. Small, lovely niche.
+
+Rejected: child-as-hero storybooks (crowded, different tech), family trip T-shirts (different supplier and business, size returns), name stickers (cheap and crowded), plain photo prints on WhatsApp (many Israeli labs already do it, which shows WhatsApp alone is not an advantage).
+Order: albums first and pass the go/stop decision; then the calendar before the next Rosh Hashana; then the kindergarten album as the first big expansion.
 
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
