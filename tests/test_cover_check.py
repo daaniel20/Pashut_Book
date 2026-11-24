@@ -119,6 +119,13 @@ class AlbumSideTest(unittest.TestCase):
         self.assertEqual(result["dpi"], 173)
         self.assertTrue(result["without_hd"])
 
+    def test_screenshot_does_not_fill_the_cover(self):
+        # Owner's test (Nov 24, 2026): a sideways YouTube screenshot (2622x1206) passed.
+        result = check_cover.check("a", make_photo((2622, 1206)))
+        self.assertEqual((result["ok"], result["problem"]), (False, "shape"))
+        result = check_cover.check("a", make_photo((1206, 2622)))     # held upright
+        self.assertEqual(result["problem"], "shape")
+
     def test_blurry_photo(self):
         result = check_cover.check("a", make_photo((3000, 4000), blur=True))
         self.assertEqual(result["problem"], "blurry")

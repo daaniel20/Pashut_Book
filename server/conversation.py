@@ -4,8 +4,8 @@ and what the bot answers.
 The steps, in order:
   new      -> the customer's first message: welcome + design buttons
   design   -> waiting for the customer to pick a design
-  cover_photo -> waiting for 1 photo for the cover (task 2.2). It is also used
-              inside the album. Its number is kept in the notes as "cover_photo:N".
+  cover_photo -> waiting for 1 photo for the cover (task 2.2). It is NOT used
+              again inside the album (nor copies of it). Its number is kept in the notes as "cover_photo:N".
   cover_check -> (task 2.5) the cover photo arrived: "got it, checking…". The bot
               checks it in the background (cover_check.py) and calls cover_checked().
               Photos sent meanwhile are counted as album photos.
@@ -275,7 +275,7 @@ def cover_checked(state, number, result, t):
 
 def cover_problem_message(t, problem):
     """The cover photo is too small or blurry: send another, or continue with it?"""
-    if problem not in ("small", "small_hd", "low", "low_hd", "blurry"):
+    if problem not in ("small", "small_hd", "low", "low_hd", "blurry", "shape"):
         problem = "small"
     new = t["button_cover_new_hd"] if problem.endswith("_hd") else t["button_cover_new"]
     return {"text": t["cover_problem_" + problem], "buttons": [
