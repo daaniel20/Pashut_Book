@@ -132,6 +132,7 @@ A payment company, automatic changes, order tracking, more languages (each with 
 
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
+- **Logo on the HD video clip:** once Pashut Book has a logo, put it on the clip's title card (`server/media/hd-how-to-title-card.png`, the clip's first frame and WhatsApp preview picture; how it's made: guide 1.2). Owner's note, Nov 24, 2026.
 - **A richer design:** the first designs felt very basic. To be decided with feedback from family and other users, in task S.3 (see S.3 for the sample picture and example albums).
 - Letting customers rearrange photos themselves was considered and **rejected**: too hard in WhatsApp. They can ask for a simple change after the preview instead.
 
