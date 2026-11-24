@@ -98,6 +98,10 @@ class LinkTest(unittest.TestCase):
         page = preview_links.page_html(code, data, load_texts("he"))
         self.assertIn(f"/album/{code}/01-page-1.jpg", page)
         self.assertNotIn("עמוד 1", page)   # the label is drawn in the image instead
+        # iPhone test: pictures load at once, and a failed one is asked for again.
+        self.assertNotIn('loading="lazy"', page)
+        self.assertIn('onerror="tryAgain(this)"', page)
+        self.assertIn("function tryAgain", page)
         self.assertIn("noindex", page)
 
         self.assertIsNotNone(preview_links.image_path(data, "00-cover.jpg"))
