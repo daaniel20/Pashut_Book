@@ -77,21 +77,12 @@ def image_path(data, name):
     return path if path.is_file() else None
 
 
-def caption(pages, t):
-    """"כריכה", "עמוד 1" or "עמודים 2–3"."""
-    if not pages:
-        return t["preview_cover"]
-    if len(pages) == 1:
-        return t["preview_page"].format(page=pages[0])
-    return t["preview_pages"].format(first=pages[0], last=pages[-1])
-
-
 def page_html(code, data, t):
-    """The album page the customer sees: all the preview images, one under the other."""
+    """The album page the customer sees: all the preview images, one under the other.
+    The page labels ("עמוד 5") are drawn in the images themselves (album/preview.py)."""
     images = "\n".join(
         f'<figure><img src="/album/{code}/{html.escape(image["name"])}" alt="" '
-        f'loading="lazy" draggable="false"><figcaption>'
-        f'{html.escape(caption(image["pages"], t))}</figcaption></figure>'
+        f'loading="lazy" draggable="false"></figure>'
         for image in data["images"])
     return _PAGE.format(title=html.escape(t["preview_page_title"]),
                         note=html.escape(t["preview_page_note"].format(pages=data["pages"])),
@@ -116,7 +107,6 @@ _PAGE = """<!DOCTYPE html>
  figure {{ margin:0 auto 22px; max-width:900px; }}
  img {{ width:100%; display:block; box-shadow:0 2px 6px #0003;
        -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }}
- figcaption {{ font-size:15px; color:#666; margin-top:6px; }}
 </style></head>
 <body oncontextmenu="return false">
 <h1>📖 {title}</h1>

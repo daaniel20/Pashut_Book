@@ -86,7 +86,7 @@ class LinkTest(unittest.TestCase):
         data = preview_links.find(code, links_dir=self.links)
         page = preview_links.page_html(code, data, load_texts("he"))
         self.assertIn(f"/album/{code}/01-page-1.jpg", page)
-        self.assertIn("עמוד 1", page)
+        self.assertNotIn("figcaption", page)   # the labels are in the images
         self.assertIn("noindex", page)
         self.assertIsNotNone(preview_links.image_path(data, "00-cover.jpg"))
         for name in ("layout.json", "../layout.json", "../../.env", ""):

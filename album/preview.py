@@ -4,8 +4,9 @@ The customer never gets the print PDF. They get small page images with a
 "PREVIEW" mark across them, sent in WhatsApp:
   the cover, page 1, then two pages side by side as the open book shows them
   (pages 2-3, 4-5 …), then the last page.
-Each image has the page numbers under the pages, so the customer can say
-"page 5: …" when they want a change.
+Each page has its label under it ("עמוד 5", "כריכה"), so the customer can say
+"page 5: …" when they want a change. The words come from the customer texts
+(server/texts/<language>.json: preview_page, preview_cover).
 
 They are small on purpose: a 20 cm page is 700 pixels (about 90 DPI), fine on
 a phone screen, too blurry to print. Together with the mark, nobody can print
@@ -17,9 +18,12 @@ folder: preview/00-cover.jpg, preview/01-page-1.jpg, preview/02-pages-2-3.jpg �
 Needs Pillow (see requirements.txt).
 """
 
+import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+import render
 
 FOLDER = "preview"
 PAGE_PIXELS = 700          # the long side of one page in a preview
@@ -31,6 +35,7 @@ MARK = "PREVIEW"
 MARK_OPACITY = 70          # 0-255: see-through, but can't be missed
 MARK_SIZE = 0.15           # letter height, as a part of the page's height
 FONT = Path(__file__).resolve().parent / "fonts" / "Rubik.ttf"
+TEXTS_DIR = Path(__file__).resolve().parent.parent / "server" / "texts"
 QUALITY = 80
 
 
@@ -44,10 +49,17 @@ def spreads(page_count):
     return groups
 
 
-def make_previews(folder, page_count):
+def labels(language="he"):
+    """The words under the pages: (cover label, page label with {page})."""
+    texts = json.loads((TEXTS_DIR / f"{language}.json").read_text(encoding="utf-8"))
+    return texts["preview_cover"], texts["preview_page"]
+
+
+def make_previews(folder, page_count, language="he"):
     """Make the preview images from the album's cover.jpg and page-NN.jpg.
     Returns [{"file": full path, "pages": [2, 3]}, …] ("pages": [] for the cover)."""
     folder = Path(folder)
+    cover_label, page_label = labels(language)
     out = folder / FOLDER
     out.mkdir(exist_ok=True)
     for old in out.glob("*.jpg"):
@@ -63,31 +75,34 @@ def make_previews(folder, page_count):
             name = (f"page-{group[0]}" if len(group) == 1
                     else f"pages-{group[0]}-{group[-1]}")
         images = [Image.open(folder / file).convert("RGB") for file in files]
-        image = _spread(images, pages)
+        names = [page_label.format(page=n) for n in pages] or [cover_label]
+        image = _spread(images, names)
         path = out / f"{index:02d}-{name}.jpg"
         image.save(path, "JPEG", quality=QUALITY)
         made.append({"file": str(path), "pages": pages})
     return made
 
 
-def _spread(images, numbers):
+def _spread(images, names):
     """The pages side by side, right to left (like a Hebrew book), each with
-    the mark, and their numbers underneath."""
+    the mark, and its label ("עמוד 5") underneath."""
     pages = [watermark(_shrink(image)) for image in images]
     height = max(p.height for p in pages)
     width = sum(p.width for p in pages) + GAP * (len(pages) - 1)
-    strip = NUMBER_STRIP if numbers else 0
+    strip = NUMBER_STRIP
     sheet = Image.new("RGB", (width, height + strip), BACKGROUND)
     draw = ImageDraw.Draw(sheet)
-    font = ImageFont.truetype(str(FONT), round(NUMBER_STRIP * 0.55))
+    # Same simple letter drawing as the cover title (render.py), so Hebrew
+    # comes out right to left on every Mac.
+    font = ImageFont.truetype(str(FONT), round(NUMBER_STRIP * 0.5),
+                              layout_engine=ImageFont.Layout.BASIC)
     x = width
-    for page, number in zip(pages, numbers or [None] * len(pages)):
+    for page, name in zip(pages, names):
         # The first page of the group is on the right.
         x -= page.width
         sheet.paste(page, (x, 0))
-        if number is not None:
-            draw.text((x + page.width / 2, height + strip / 2), str(number),
-                      fill=NUMBER_COLOUR, font=font, anchor="mm")
+        draw.text((x + page.width / 2, height + strip / 2), render.visual_order(name),
+                  fill=NUMBER_COLOUR, font=font, anchor="mm")
         x -= GAP
     return sheet
 
