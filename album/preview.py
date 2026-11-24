@@ -3,7 +3,10 @@
 The customer never gets the print PDF. They get small page images with a
 "PREVIEW" mark across them, sent in WhatsApp:
   the cover, page 1, then two pages side by side as the open book shows them
-  (pages 2-3, 4-5 …), then the last page.
+  (pages 2-3, 4-5 …), then the last page. Page 1 and the last page are alone
+  in the book, so they are shown on their own side of an open book, next to an
+  empty grey half: every page is the same size (owner's feedback, Nov 24, 2026:
+  a single page stretched to the full width looked twice as big).
 Each image has the page numbers under the pages, so the customer can say
 "page 5: …" when they want a change.
 
@@ -26,6 +29,7 @@ PAGE_PIXELS = 700          # the long side of one page in a preview
 GAP = 6                    # pixels between the two pages of a spread (the book's fold)
 NUMBER_STRIP = 46          # pixels under the pages for the page numbers
 BACKGROUND = (236, 236, 236)
+EMPTY_SIDE = (222, 222, 222)   # the inside of the cover, next to page 1 and the last page
 NUMBER_COLOUR = (90, 90, 90)
 MARK = "PREVIEW"
 MARK_OPACITY = 70          # 0-255: see-through, but can't be missed
@@ -74,6 +78,13 @@ def _spread(images, numbers):
     """The pages side by side, right to left (like a Hebrew book), each with
     the mark, and their numbers underneath."""
     pages = [watermark(_shrink(image)) for image in images]
+    if len(numbers or []) == 1:
+        # A page alone in the book: odd pages are on the left, even on the right.
+        empty = Image.new("RGB", pages[0].size, EMPTY_SIDE)
+        if numbers[0] % 2:
+            pages, numbers = [empty] + pages, [None] + numbers
+        else:
+            pages, numbers = pages + [empty], numbers + [None]
     height = max(p.height for p in pages)
     width = sum(p.width for p in pages) + GAP * (len(pages) - 1)
     strip = NUMBER_STRIP if numbers else 0

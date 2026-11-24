@@ -301,7 +301,9 @@ def main():
     public_url = (env.get("PUBLIC_URL") or DEFAULT_PUBLIC_URL).rstrip("/")
 
     def make_link(result):
-        code = preview_links.create(result["folder"], result["previews"], result["pages"])
+        code = preview_links.create(result["folder"], result["previews"], result["pages"],
+                                    photos=result.get("photos_in_album"),
+                                    design=result.get("design"))
         return f"{public_url}/album/{code}"
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start
