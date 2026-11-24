@@ -289,6 +289,16 @@ class WaitForPhotosTest(unittest.TestCase):
         replies = self.say("button", "photos_done")
         self.assertIn("קיבלנו 3 תמונות", replies[0]["text"])
 
+    def test_count_is_sent_once_photos_stop(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        for n in range(1, 6):
+            self.say("photo", photo(n))                  # the cover, then 4 more
+        self.assertTrue(self.wait_until(lambda: self.sent))
+        self.assertIn("קיבלנו 5 תמונות", self.sent[-1]["text"])
+        self.assertIn("photos_done", [b["id"] for b in self.sent[-1]["buttons"]])
+        self.assertIn("counted:5", self.db.orders[0]["notes"])
+
     def test_photo_after_the_summary_rebuilds_the_album(self):
         orders.QUIET_SECONDS = 0
         self.say("text", "שלום")
@@ -351,8 +361,8 @@ class AlbumReadyTest(unittest.TestCase):
         self.assertEqual(self.db.orders[0]["step"], "hd_question")
         self.assertIn("hd_asked", self.orders.notes_of(PHONE, order_id))
         self.say("button", "hd_help")
-        self.assertEqual(self.db.photos, [])          # the old photos are gone
-        self.finish(first=10, count=2)
+        self.assertEqual(len(self.db.photos), 3)      # only the how-to: nothing deleted yet
+        self.finish(first=10, count=2)                # the first new photo replaces the old ones
         self.assertEqual(len(self.db.photos), 2)
         self.assertIn(f"{order_id}/001.jpg", self.db.files)
         self.assertEqual(self.db.orders[0]["step"], "done")

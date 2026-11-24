@@ -14,10 +14,13 @@ The steps, in order:
               Continuing adds the note "cover_kept": the album shows it smaller.
               The photo being checked is "cover_check:N"; it becomes the cover
               ("cover_photo:N") only once it is accepted.
-  photos   -> waiting for photos, until the customer taps "done". If photos are
-              still arriving when "done" is tapped (orders.py sets "recent_photo"),
-              the bot says "making sure all photos arrived…" (note "done_waiting")
-              and orders.py calls photos_settled() once no photo came for a while.
+  photos   -> waiting for photos. The bot stays quiet while they arrive; once no
+              photo came for a minute, orders.py calls photos_settled(), which sends
+              "got N photos, send more or tap done" with the "done" button (note
+              "counted:N"), so the button is BELOW the photos, never above them.
+              If "done" is typed while photos still arrive (orders.py sets
+              "recent_photo"), the bot says "making sure all photos arrived…"
+              (note "done_waiting") and goes on in photos_settled().
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
@@ -29,6 +32,9 @@ The steps, in order:
   for customers who tapped "done" too early.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
+                 "How do I send HD?" only shows the how-to (with the video clip) and
+                 [continue without HD]; nothing is deleted until the first new photo
+                 arrives, which replaces the old ones.
   Starting over: typing "אלבום חדש", or the "🔄 אלבום חדש" button (added to every
   message with fewer than 3 buttons once there is something to lose, and to the
   "change something" list). It always asks first [yes, start over] [no, continue],
@@ -52,6 +58,8 @@ Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 
 import unicodedata
 
+from settings import MEDIA_DIR
+
 # The two album designs. Their names for the customer are in the texts file
 # ("design_classic", "design_colorful").
 DESIGNS = ["classic", "colorful"]
@@ -60,6 +68,9 @@ MAX_PHOTOS = 100
 # (it's often an accidental tap). The customer can still continue.
 FEW_PHOTOS = 40
 MAX_TITLE_LENGTH = 40
+# The HD how-to clip (owner's iPhone screen recording, HD button circled).
+# Used for every customer for now; an Android clip may come later.
+HD_VIDEO = MEDIA_DIR / "hd-how-to-iphone.mp4"
 # Unicode kinds of characters the album can't print: emojis and other symbols
 # (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
 _NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
@@ -129,13 +140,13 @@ def _answer(state, kind, value, words, t):
         if "editing" in state["notes"]:
             # They came back from the summary to change the design.
             return _finish(state, t)
-        messages = [_text(t["design_chosen"].format(
-            design=t["design_" + design], max=MAX_PHOTOS))]
+        messages = [_with_hd_video(_text(t["design_chosen"].format(
+            design=t["design_" + design], max=MAX_PHOTOS)))]
         if state["photos"]:
             # They sent photos before choosing a design: the first one is the cover.
             set_cover_photo(state, 1)
             state["step"] = "photos"
-            messages[0] = _text(messages[0]["text"].rsplit("\n\n", 1)[0])
+            messages[0]["text"] = messages[0]["text"].rsplit("\n\n", 1)[0]
             messages.append(_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"]))))
         else:
             state["step"] = "cover_photo"
@@ -180,9 +191,10 @@ def _answer(state, kind, value, words, t):
         if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
             return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
         if kind == "other":
+            # Usually sent in the middle of the photos: no "done" button here.
             note = "video" if value == "video" else "not_a_photo"
             text = t["video_not_used"] if value == "video" else t["not_a_photo"]
-            return _once(state, note, [_done_button(t, text)])
+            return _once(state, note, [_text(text)])
         return [_done_button(t, t["photos_reminder"])]
 
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]) and step in ("cover", "title"):
@@ -210,12 +222,14 @@ def _answer(state, kind, value, words, t):
         return [_title_request(t)]
 
     if step == "hd_question":
-        if (kind == "button" and value == "hd_continue") or words == _clean(t["button_hd_continue"]):
+        if (kind == "button" and value == "hd_continue") or \
+                words in (_clean(t["button_hd_continue"]), _clean(t["button_hd_continue_no_hd"])):
             state["step"] = "done"
             return [_text(t["hd_continue"])]
         if (kind == "button" and value == "hd_help") or words == _clean(t["button_hd_help"]):
-            _resend_photos(state)
-            return [_done_button(t, t["hd_how_to"].format(max=MAX_PHOTOS))]
+            # Only the how-to: nothing is deleted until the first new photo arrives,
+            # so they can still change their mind and continue without HD.
+            return [_hd_how_to(t)]
         return [hd_question(t)]
 
     # step == "done"
@@ -249,14 +263,30 @@ def _answer(state, kind, value, words, t):
 
 
 def photos_settled(state, t):
-    """No new photo for a while after "done" was tapped (called by orders.py):
-    go on to the next question. [] if the customer has meanwhile moved on."""
-    if "done_waiting" not in state["notes"]:
+    """No new photo came for a while (called by orders.py). If "done" was already
+    typed, go on to the next question; otherwise send the photo count with the
+    "done" button, below the photos. [] if there is nothing new to say."""
+    if "done_waiting" in state["notes"]:
+        state["notes"].remove("done_waiting")
+        if state["step"] != "photos":
+            return []
+        return [with_restart(state, m, t) for m in _photos_done(state, t)]
+    count = state["photos"]
+    if state["step"] != "photos" or count == 0 or _note(state, "counted") == str(count):
         return []
-    state["notes"].remove("done_waiting")
-    if state["step"] != "photos":
-        return []
-    return [with_restart(state, m, t) for m in _photos_done(state, t)]
+    if count == 1 and cover_photo(state) == 1:
+        return []   # only the cover so far: the bot already asked for the rest
+    _set_note(state, "counted", count)
+    if count >= MAX_PHOTOS:
+        message = _done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))
+    elif count < FEW_PHOTOS:
+        # Says "we recommend at least 40" here, so "done" won't ask about it again.
+        _set_note(state, "few_told", count)
+        message = _done_button(t, t["photos_count_few"].format(
+            photos=_photos(t, count), few=FEW_PHOTOS))
+    else:
+        message = _done_button(t, t["photos_count"].format(photos=_photos(t, count)))
+    return [with_restart(state, message, t)]
 
 
 def _photos_done(state, t):
@@ -265,8 +295,9 @@ def _photos_done(state, t):
         return [_text(t["no_photos_yet"])]
     if state["photos"] == 1 and cover_photo(state) == 1:
         # Only the cover photo so far: that's not an album yet.
-        return [_done_button(t, t["only_cover_photo"])]
-    if state["photos"] < FEW_PHOTOS and "few_photos_ok" not in state["notes"]:
+        return [_restart_only(t, t["only_cover_photo"])]
+    told = _note(state, "few_told") == str(state["photos"])   # the count message said it
+    if state["photos"] < FEW_PHOTOS and "few_photos_ok" not in state["notes"] and not told:
         return [_few_photos_buttons(t, state)]
     if "cover_asked" in state["notes"]:
         # They already answered about the cover (they're resending photos in HD).
@@ -390,10 +421,11 @@ def cover_problem_message(t, problem):
     if problem not in ("small", "small_hd", "low", "low_hd", "blurry", "shape"):
         problem = "small"
     new = t["button_cover_new_hd"] if problem.endswith("_hd") else t["button_cover_new"]
-    return {"text": t["cover_problem_" + problem], "buttons": [
+    message = {"text": t["cover_problem_" + problem], "buttons": [
         {"id": "cover_new", "title": new},
         {"id": "cover_keep", "title": t["button_cover_keep"]},
     ]}
+    return _with_hd_video(message) if problem.endswith("_hd") else message
 
 
 def after_previews(t):
@@ -446,7 +478,7 @@ def _on_photo(state, t):
         # They're already sending the photos again, in HD.
         _resend_photos(state)
         state["photos"] = 1
-        return [_done_button(t, t["hd_resending"])]
+        return [_restart_only(t, t["hd_resending"])]
     if step == "done":
         if state["photos"] >= MAX_PHOTOS:
             return _after_done(state, t)
@@ -476,9 +508,8 @@ def _on_photo(state, t):
     state["photos"] += 1
     if step == "design":
         return _once(state, "photo_before_design", [_design_buttons(t, t["photo_before_design"])])
-    if step == "photos" and state["photos"] == 1:
-        return [_done_button(t, t["first_photo"])]
     # Customers send many photos; we stay quiet instead of answering each one.
+    # Once they stop, photos_settled() sends the count with the "done" button.
     return []
 
 
@@ -499,7 +530,8 @@ def _cover_accepted(state, t, kept):
     text = t["cover_photo_saved"]
     if kept:
         text = t["cover_kept_full"] if full_size else t["cover_kept"]
-    return [_done_button(t, text.format(max=MAX_PHOTOS))]
+    # No "done" button here: it would be above the photos still to come.
+    return [_restart_only(t, text.format(max=MAX_PHOTOS))]
 
 
 def _note(state, name):
@@ -535,6 +567,7 @@ def _back_to_photos(state, t):
     if not from_summary and "cover_asked" in state["notes"]:
         # They haven't answered about the title yet: ask again after the photos.
         state["notes"].remove("cover_asked")
+    _set_note(state, "counted", state["photos"])   # this message already shows the count
     if state["photos"] >= MAX_PHOTOS:
         return [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))]
     return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
@@ -546,6 +579,7 @@ def _resend_photos(state):
     state["photos"] = 0
     state["resend_photos"] = True
     set_cover_photo(state, None)   # the album picks a cover from the new photos
+    _set_note(state, "counted", None)
     _set_note(state, "cover_check", None)
     _set_note(state, "cover_problem", None)
     for note in ("photo_limit", "not_a_photo", "cover_kept"):
@@ -664,6 +698,25 @@ def _edit_list(t, text):
 
 def _keep_cover_button(t, text):
     return {"text": text, "buttons": [{"id": "keep_cover", "title": t["button_keep_cover"]}]}
+
+
+def _restart_only(t, text):
+    """A message whose only button is "🔄 אלבום חדש" (no "done" button above
+    photos that are still to come)."""
+    return {"text": text, "buttons": [{"id": "restart", "title": t["button_restart"]}]}
+
+
+def _with_hd_video(message):
+    """Put the HD how-to clip on top of the message, if the clip is there."""
+    if HD_VIDEO.exists():
+        return dict(message, video_file=str(HD_VIDEO))
+    return message
+
+
+def _hd_how_to(t):
+    return _with_hd_video({"text": t["hd_how_to"].format(max=MAX_PHOTOS), "buttons": [
+        {"id": "hd_continue", "title": t["button_hd_continue_no_hd"]},
+    ]})
 
 
 def _done_button(t, text):

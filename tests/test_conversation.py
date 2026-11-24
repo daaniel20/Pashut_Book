@@ -67,11 +67,15 @@ class ConversationTest(unittest.TestCase):
         first = talk(state, "photo")             # the cover photo
         self.assertIn("בודקים", first[0]["text"])  # "got it, checking…" (task 2.5)
         self.assertIn("40", first[1]["text"])    # checked: "send 40-100 photos"
-        self.assertEqual(button_ids(first[1]), ["photos_done"])
+        self.assertEqual(button_ids(first[1]), [])  # no "done" above the photos to come
+        self.assertTrue(has_restart(first[1]))
         self.assertEqual(conversation.cover_photo(state), 1)
         for _ in range(59):
             self.assertEqual(talk(state, "photo"), [])  # quiet, no reply per photo
         self.assertEqual(state["photos"], 60)
+        settled = conversation.photos_settled(state, TEXTS)   # photos stopped arriving
+        self.assertIn("קיבלנו 60 תמונות", settled[0]["text"])
+        self.assertEqual(button_ids(settled[0]), ["photos_done"])   # "done" below the photos
 
         replies = talk(state, "button", "photos_done")
         self.assertIn("60", replies[0]["text"])
@@ -346,7 +350,7 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual((state["step"], conversation.cover_photo(state)), ("photos", 1))
         self.assertIn("cover_kept", state["notes"])
         self.assertIn("קטנה", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        self.assertEqual(button_ids(replies[0]), [])   # "done" comes after the photos
 
     def test_small_new_cover_from_the_summary(self):
         state = self.finished_order()
@@ -620,6 +624,113 @@ class ArrivingPhotosTest(unittest.TestCase):
         self.assertEqual(state["photos"], 5)
 
 
+class DoneButtonBelowPhotosTest(unittest.TestCase):
+    """The "done" button comes after the photos (owner's test, Nov 24, 2026)."""
+
+    def after_cover(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")                              # the cover
+        return state
+
+    def test_count_with_done_button_once_photos_stop(self):
+        state = self.after_cover()
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])   # only the cover: nothing to say
+        for _ in range(20):
+            talk(state, "photo")
+        replies = conversation.photos_settled(state, TEXTS)
+        self.assertIn("קיבלנו 21 תמונות", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        self.assertTrue(has_restart(replies[0]))
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])   # same count: quiet
+        for _ in range(5):
+            talk(state, "photo")
+        replies = conversation.photos_settled(state, TEXTS)
+        self.assertIn("קיבלנו 26 תמונות", replies[0]["text"])          # updated count
+
+    def test_few_photos_said_in_the_count_not_asked_again(self):
+        conversation.FEW_PHOTOS = 40
+        try:
+            state = self.after_cover()
+            for _ in range(11):
+                talk(state, "photo")
+            replies = conversation.photos_settled(state, TEXTS)
+            self.assertIn("לפחות 40", replies[0]["text"])
+            replies = talk(state, "button", "photos_done")
+            self.assertEqual(state["step"], "cover")        # no second "only 12?" question
+            talk(state, "button", "add_photos")
+            talk(state, "photo")
+            replies = talk(state, "button", "photos_done")   # 13 photos, not told yet: asked
+            self.assertEqual(button_ids(replies[0]), ["add_photos", "few_photos_ok"])
+        finally:
+            conversation.FEW_PHOTOS = 2
+
+    def test_video_mid_photos_has_no_done_button(self):
+        state = self.after_cover()
+        replies = talk(state, "other", "video")
+        self.assertNotIn("buttons", replies[0])
+
+    def test_add_photos_from_the_summary_doesnt_repeat_the_count(self):
+        state = self.after_cover()
+        for _ in range(3):
+            talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        talk(state, "button", "add_photos")              # "already got 4 photos" + done
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])
+        talk(state, "photo")
+        replies = conversation.photos_settled(state, TEXTS)
+        self.assertIn("קיבלנו 5 תמונות", replies[0]["text"])
+
+
+class HdVideoTest(unittest.TestCase):
+    """The HD how-to clip and "continue without HD" (owner's test, Nov 24, 2026)."""
+
+    def test_clip_is_in_the_project(self):
+        self.assertTrue(conversation.HD_VIDEO.exists())
+
+    def test_clip_on_the_hd_instructions(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        replies = talk(state, "button", "design_classic")
+        self.assertEqual(replies[0].get("video_file"), str(conversation.HD_VIDEO))
+        problem = conversation.cover_problem_message(TEXTS, "small_hd")
+        self.assertIn("video_file", problem)
+        self.assertNotIn("video_file", conversation.cover_problem_message(TEXTS, "blurry"))
+
+    def test_how_to_can_still_continue_without_hd(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(6):
+            talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        state["step"] = "hd_question"                     # what album_job.py does
+        replies = talk(state, "button", "hd_help")
+        self.assertIn("video_file", replies[0])
+        self.assertEqual(button_ids(replies[0]), ["hd_continue"])
+        self.assertEqual(state["photos"], 6)              # nothing deleted
+        talk(state, "button", "hd_continue")              # changed their mind
+        self.assertEqual((state["step"], state["photos"]), ("done", 6))
+
+    def test_typed_continue_without_hd(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(3):
+            talk(state, "photo")
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        state["step"] = "hd_question"
+        talk(state, "text", "להמשיך בלי HD")
+        self.assertEqual(state["step"], "done")
+
+    def test_hd_button_titles_fit_whatsapp(self):
+        self.assertLessEqual(len(TEXTS["button_hd_continue_no_hd"]), 20)
+
+
 class FewPhotosTest(unittest.TestCase):
     """Tapping "done" too early: only the cover photo, or only a few photos."""
 
@@ -642,7 +753,7 @@ class FewPhotosTest(unittest.TestCase):
         replies = talk(state, "button", "photos_done")
         self.assertEqual(state["step"], "photos")
         self.assertIn("תמונת הכריכה", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        self.assertEqual(button_ids(replies[0]), [])   # "done" comes after the photos
 
     def test_few_photos_asks_once_then_add_more(self):
         state = self.start(12)
@@ -720,10 +831,13 @@ class AlbumMessagesTest(unittest.TestCase):
         state["step"] = "hd_question"
         replies = talk(state, "button", "hd_help")
         self.assertIn("HD", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["photos_done"])
-        self.assertEqual((state["step"], state["photos"]), ("photos", 0))
+        self.assertEqual(button_ids(replies[0]), ["hd_continue"])   # "continue without HD"
+        self.assertEqual((state["step"], state["photos"]), ("hd_question", 5))   # nothing deleted yet
+        self.assertNotIn("resend_photos", state)
+        talk(state, "photo")                          # the first new photo replaces the old ones
+        self.assertEqual((state["step"], state["photos"]), ("photos", 1))
         self.assertTrue(state.pop("resend_photos"))
-        for _ in range(4):
+        for _ in range(3):
             talk(state, "photo")
         replies = talk(state, "button", "photos_done")
         # The cover was already answered: straight to the summary.
@@ -737,7 +851,7 @@ class AlbumMessagesTest(unittest.TestCase):
         replies = talk(state, "photo")
         self.assertEqual((state["step"], state["photos"]), ("photos", 1))
         self.assertTrue(state["resend_photos"])
-        self.assertEqual(button_ids(replies[0]), ["photos_done"])
+        self.assertEqual(button_ids(replies[0]), [])   # "done" comes after the photos
 
     def test_other_text_repeats_the_question(self):
         state = self.finished_state()

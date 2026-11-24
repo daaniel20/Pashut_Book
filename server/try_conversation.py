@@ -8,6 +8,8 @@ Type like a customer. Special commands:
   /photo small   a cover photo that is too small (without HD)
   /photo blurry  a blurry cover photo
   /video      send a video
+  /wait       a minute passes with no new photo (the bot then sends the photo
+              count with the "done" button, as it does after real photos stop)
   /quit       stop
 Nothing is sent to WhatsApp and nothing is saved.
 """
@@ -30,6 +32,8 @@ buttons = []
 def show(replies):
     global buttons
     for reply in replies:
+        if reply.get("video_file"):
+            print("\n🎬 (video on top: the HD how-to clip)")
         print("\n🤖 " + reply["text"].replace("\n", "\n   "))
         if reply.get("list"):
             # In WhatsApp this is one button that opens a list.
@@ -61,6 +65,8 @@ while True:
             if number:
                 print(f"   (checking the cover photo: {cover})")
                 show(conversation.cover_checked(state, number, COVER_RESULTS[cover], texts))
+    elif typed == "/wait":
+        show(conversation.photos_settled(state, texts))
     elif typed == "/video":
         show(conversation.answer(state, "other", "video", texts))
     elif typed.isdigit() and 1 <= int(typed) <= len(buttons):

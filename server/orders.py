@@ -34,9 +34,10 @@ log = logging.getLogger("bot")
 MAX_PHOTO_BYTES = 40 * 1024 * 1024
 FILE_TYPES = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
               "image/heic": "heic", "image/heif": "heif", "image/webp": "webp"}
-# After "done" is tapped, wait until no new photo arrived for this long before
-# going on: many HD photos take a while to upload, and the tap arrives first.
-QUIET_SECONDS = 30
+# Photos have "stopped arriving" once none came for this long. Then the bot sends
+# the photo count with the "done" button (below the photos), or, if "done" was
+# already typed, goes on. Many HD photos take a while to upload, with pauses.
+QUIET_SECONDS = 60
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
@@ -100,7 +101,8 @@ class Orders:
             if not was_finished:
                 self._cancel(old_order)
             return replies, None
-        if state.pop("resend_photos", False):
+        resend = state.pop("resend_photos", False)
+        if resend:
             # The customer is sending their photos again in HD: delete the old ones
             # first, so the new photo 1, 2, 3… don't clash with them.
             try:
@@ -117,7 +119,9 @@ class Orders:
             log.error("Could not save order %s: %s", short(state["order_id"]), error)
 
         photo = None
-        if kind == "photo" and state["photos"] > count_before:
+        # A new photo was counted (when resending in HD, the first new photo
+        # starts the count again at 1, so it's lower than before but still new).
+        if kind == "photo" and (state["photos"] > count_before or resend):
             photo = (state["order_id"], state["photos"])
             # Count it as "still saving" BEFORE the album may start: a new cover
             # photo is the very message that completes the order again, and the
@@ -128,11 +132,12 @@ class Orders:
         rebuild = state.pop("rebuild", False)   # a photo arrived after the summary
         if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
             self.on_ready(phone, state["order_id"])
-        if "done_waiting" in state["notes"]:
+        if "done_waiting" in state["notes"] or \
+                (kind == "photo" and state["step"] in ("photos", "cover_check")):
             self._settle_later(phone, texts)
         return replies, photo
 
-    # ---------- "done" tapped while photos are still arriving ----------
+    # ---------- once photos stop arriving: the count, or go on after "done" ----------
 
     def _settle_later(self, phone, texts):
         with self._guard:
@@ -203,6 +208,9 @@ class Orders:
                 log.error("Could not save order %s: %s", short(order_id), error)
             if state["step"] == "done" and old_step != "done" and self.on_ready:
                 self.on_ready(phone, order_id)   # a new cover chosen from the summary
+            if state["step"] == "photos":
+                # Photos sent during the check: their count comes once they stop.
+                self._settle_later(phone, texts)
             return replies
 
     # ---------- for the album (task 2.2) ----------
