@@ -27,6 +27,9 @@ except ImportError:  # Pillow not installed
 
 @unittest.skipIf(Image is None, "Pillow is not installed")
 class PreviewTest(unittest.TestCase):
+    def test_labels_come_from_the_texts(self):
+        self.assertEqual(preview.labels("he"), ("כריכה", "עמוד {page}"))
+
     def test_pages_are_grouped_like_an_open_hebrew_book(self):
         self.assertEqual(preview.spreads(6), [[None], [1], [2, 3], [4, 5], [6]])
 
@@ -94,7 +97,7 @@ class LinkTest(unittest.TestCase):
         data = preview_links.find(code, links_dir=self.links)
         page = preview_links.page_html(code, data, load_texts("he"))
         self.assertIn(f"/album/{code}/01-page-1.jpg", page)
-        self.assertIn("עמוד 1", page)
+        self.assertNotIn("עמוד 1", page)   # the label is drawn in the image instead
         self.assertIn("noindex", page)
 
         self.assertIsNotNone(preview_links.image_path(data, "00-cover.jpg"))
@@ -114,8 +117,8 @@ class LinkTest(unittest.TestCase):
         self.assertNotIn("PREVIEW", page)
         self.assertLess(page.index("22 עמודים"), page.index("/01-page-1.jpg"))
         self.assertGreater(page.index("חזרו לוואטסאפ"), page.index("/01-page-1.jpg"))
-        # "20–21" stays left to right inside the Hebrew caption.
-        self.assertEqual(preview_links.caption([20, 21], t), "עמודים \u206620–21\u2069")
+        # Each page's label is in the image itself: no second caption on the page.
+        self.assertNotIn("figcaption", page)
 
     def test_wrong_or_old_codes_open_nothing(self):
         for code in ("", "short", "../" * 11 + "xx", "a" * 32):
