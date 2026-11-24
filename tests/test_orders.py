@@ -167,6 +167,7 @@ class OrdersTest(unittest.TestCase):
         self.say("button", "design_classic")
         self.send_photos(5)
         self.say("text", "אלבום חדש")
+        self.say("button", "restart_yes")   # "are you sure?" -> yes
         old, new = self.db.orders
         self.assertEqual(old["status"], "cancelled")
         self.assertEqual(new["status"], "collecting")
@@ -177,6 +178,18 @@ class OrdersTest(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(self.db.files, {})
 
+    def test_finished_album_is_kept_when_restarting_while_changing_it(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.send_photos(3)
+        self.say("button", "photos_done")
+        self.say("button", "cover_no")
+        self.say("button", "edit_title")       # changing the finished album…
+        self.say("text", "אלבום חדש")          # …then starting a new one
+        self.say("button", "restart_yes")
+        self.assertNotEqual(self.db.orders[0]["status"], "cancelled")
+        self.assertEqual(len(self.db.orders), 2)
+
     def test_finished_album_is_kept_when_starting_a_new_one(self):
         self.say("text", "שלום")
         self.say("button", "design_classic")
@@ -185,6 +198,7 @@ class OrdersTest(unittest.TestCase):
         self.say("button", "cover_no")
         self.assertEqual(self.db.orders[0]["status"], "ready")
         self.say("text", "אלבום חדש")
+        self.say("button", "restart_yes")   # "are you sure?" -> yes
         self.assertEqual(self.db.orders[0]["status"], "ready")
         self.assertEqual(len(self.db.files), 2)
 
@@ -274,6 +288,7 @@ class AlbumReadyTest(unittest.TestCase):
         self.say("button", "cover_no")
         old_order = self.db.orders[0]["id"]
         self.say("text", "אלבום חדש")
+        self.say("button", "restart_yes")   # "are you sure?" -> yes
         self.assertFalse(self.orders.ask_hd(PHONE, old_order))
         self.assertIsNone(self.orders.notes_of(PHONE, old_order))
 

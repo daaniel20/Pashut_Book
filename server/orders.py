@@ -71,6 +71,8 @@ class Orders:
         """
         state = self._load(phone)
         old_order, old_step = state["order_id"], state["step"]
+        # Changing something from the summary: the album was already finished.
+        was_finished = old_step == "done" or "editing" in state["notes"]
         count_before = state["photos"]
 
         replies = conversation.answer(state, kind, value, texts)
@@ -82,7 +84,7 @@ class Orders:
             except DatabaseError:
                 del self._states[phone]  # reload from Supabase next time
                 raise
-            if old_step != "done":
+            if not was_finished:
                 self._cancel(old_order)
             return replies, None
         if state.pop("resend_photos", False):

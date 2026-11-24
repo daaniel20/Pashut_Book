@@ -26,6 +26,10 @@ The steps, in order:
   for customers who tapped "done" too early.
   hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
                  Set by album_job.py after it checks the photos, not by answer().
+  Starting over: typing "אלבום חדש", or the "🔄 אלבום חדש" button (added to every
+  message with fewer than 3 buttons once there is something to lose, and to the
+  "change something" list). It always asks first [yes, start over] [no, continue],
+  because the photos are deleted. A finished album is kept (orders.py).
   After the album is built, album_job.py sends the preview images (task 2.4) and
   adds the note "previews_sent". The last preview message has the buttons
   "love it" (a short thank-you; payment comes in task 3.2) and "change something"
@@ -90,12 +94,13 @@ def answer(state, kind, value, texts):
     """Update the customer's state and return the messages to send back."""
     t = texts
     words = _clean(value) if kind == "text" else ""
+    restart = _restart(state, kind, value, words, t)
+    if restart is not None:
+        return restart
+    return [with_restart(state, m, t) for m in _answer(state, kind, value, words, t)]
 
-    # "אלבום חדש" (or similar) at any time starts over.
-    if words in _word_list(t, "restart_words") and state["step"] != "new":
-        state.clear()
-        state.update(new_state())
 
+def _answer(state, kind, value, words, t):
     step = state["step"]
 
     if step == "new":
@@ -239,6 +244,81 @@ def answer(state, kind, value, texts):
     return _after_done(state, t)
 
 
+def with_restart(state, message, t):
+    """Add the "🔄 אלבום חדש" button to a message with fewer than 3 buttons,
+    once the customer has something to lose. Not on the summary or the
+    previews (there it's in the "change something" list), the restart
+    question itself, or the first design question."""
+    buttons = message.get("buttons")
+    if not buttons or len(buttons) >= 3 or not _has_progress(state):
+        return message
+    ids = {b["id"] for b in buttons}
+    if ids & {"confirm", "preview_ok", "restart_yes", "restart"}:
+        return message
+    if state["step"] == "design" and "editing" not in state["notes"]:
+        return message
+    return dict(message, buttons=buttons + [{"id": "restart", "title": t["button_restart"]}])
+
+
+def _has_progress(state):
+    """Is there anything to lose by starting over?"""
+    return state["photos"] > 0 or state["step"] not in ("new", "design", "cover_photo")
+
+
+def _restart(state, kind, value, words, t):
+    """Starting over. Returns the messages, or None if this message isn't about it."""
+    asked = "confirm_restart" in state["notes"]
+    while "confirm_restart" in state["notes"]:
+        state["notes"].remove("confirm_restart")   # any other message cancels the question
+    wants = (kind == "button" and value == "restart") or words in _word_list(t, "restart_words") \
+        or (kind == "text" and words in (_clean(t["button_restart"]), _clean(t["button_restart_list"])))
+    yes = _tapped(kind, value, words, "restart_yes", t["button_restart_yes"])
+    no = _tapped(kind, value, words, "restart_no", t["button_restart_no"])
+    if not (wants or yes or no) or state["step"] == "new":
+        return None
+    if no:
+        return [_text(t["restart_cancelled"])] + [with_restart(state, m, t) for m in _step_prompt(state, t)]
+    if (yes and asked) or (wants and not _has_progress(state)):
+        state.clear()
+        state.update(new_state())
+        return _answer(state, "text", "", "", t)   # the welcome and the design buttons
+    # Ask first: the photos would be deleted.
+    state["notes"].append("confirm_restart")
+    finished = state["step"] == "done" or "editing" in state["notes"]
+    text = t["restart_confirm_done"] if finished else \
+        t["restart_confirm"].format(photos=_photos(t, state["photos"]))
+    return [{"text": text, "buttons": [
+        {"id": "restart_yes", "title": t["button_restart_yes"]},
+        {"id": "restart_no", "title": t["button_restart_no"]},
+    ]}]
+
+
+def _step_prompt(state, t):
+    """The question of the step the customer is at (after "no, continue")."""
+    step = state["step"]
+    if step == "design":
+        return [_design_buttons(t, t["choose_design"])]
+    if step == "cover_photo":
+        if "editing" in state["notes"]:
+            return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+        return [_text(t["ask_cover_photo"])]
+    if step == "cover_check":
+        return [_text(t["cover_still_checking"])]
+    if step == "cover_problem":
+        return [cover_problem_message(t, _note(state, "cover_problem"))]
+    if step == "photos":
+        return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
+    if step == "cover":
+        return [_cover_buttons(t, state)]
+    if step == "title":
+        return [_title_request(t)]
+    if step == "hd_question":
+        return [hd_question(t)]
+    if "previews_sent" in state["notes"]:
+        return [after_previews(t)]
+    return [_summary(state, t)]
+
+
 def cover_photo(state):
     """The number of the photo the customer chose for the cover, or None."""
     number = _note(state, "cover_photo")
@@ -264,13 +344,13 @@ def cover_checked(state, number, result, t):
     if checking_cover(state) != number:
         return []
     if not result or result.get("ok"):
-        return _cover_accepted(state, t, kept=False)
+        return [with_restart(state, m, t) for m in _cover_accepted(state, t, kept=False)]
     problem = result.get("problem") or "small"
     if problem in ("small", "low") and result.get("without_hd"):
         problem += "_hd"
     state["step"] = "cover_problem"
     _set_note(state, "cover_problem", problem)
-    return [cover_problem_message(t, problem)]
+    return [with_restart(state, cover_problem_message(t, problem), t)]
 
 
 def cover_problem_message(t, problem):
@@ -471,15 +551,19 @@ def _finish(state, t):
                  "after_previews", "preview_ok"):
         while note in state["notes"]:
             state["notes"].remove(note)
+    return [_summary(state, t)]
+
+
+def _summary(state, t):
     summary = t["summary"].format(
         design=t["design_" + state["design"]],
         count=state["photos"],
         title=state["title"] or t["no_title"],
     )
-    return [{"text": summary, "buttons": [
+    return {"text": summary, "buttons": [
         {"id": "confirm", "title": t["button_confirm"]},
         {"id": "edit_menu", "title": t["button_edit"]},
-    ]}]
+    ]}
 
 
 def _photos(t, count):
@@ -527,12 +611,13 @@ def _change_button(t, text):
 
 def _edit_list(t, text):
     """The "change something" list (WhatsApp allows only 3 buttons,
-    so the 4 choices are in a list that opens from one button)."""
+    so the choices are in a list that opens from one button)."""
     return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"], "rows": [
         {"id": "edit_title", "title": t["button_edit_title"]},
         {"id": "edit_design", "title": t["button_edit_design"]},
         {"id": "edit_cover", "title": t["button_edit_cover"]},
         {"id": "add_photos", "title": t["button_add_photos"]},
+        {"id": "restart", "title": t["button_restart_list"]},
     ]}}
 
 
