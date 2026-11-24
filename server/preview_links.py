@@ -32,9 +32,11 @@ LINK_DAYS = 30
 _CODE = re.compile(r"^[A-Za-z0-9_-]{32}$")
 
 
-def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS):
+def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS,
+           photos=None, design=None):
     """A new link code for this album. Older links to the same album stop working.
-    previews is the list from build_album.py: [{"file": path, "pages": [2, 3]}, …]."""
+    previews is the list from build_album.py: [{"file": path, "pages": [2, 3]}, …].
+    photos and design are shown at the top of the page (how many photos, which design)."""
     links_dir.mkdir(parents=True, exist_ok=True)
     folder = str(folder)
     for old in links_dir.glob("*.json"):
@@ -47,6 +49,8 @@ def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS):
     data = {
         "folder": folder,
         "pages": pages,
+        "photos": photos,
+        "design": design,
         "images": [{"name": Path(p["file"]).name, "pages": p["pages"]} for p in previews],
         "expires": time.time() + days * 24 * 3600,
     }
@@ -83,24 +87,40 @@ def caption(pages, t):
         return t["preview_cover"]
     if len(pages) == 1:
         return t["preview_page"].format(page=pages[0])
-    return t["preview_pages"].format(first=pages[0], last=pages[-1])
+    # The numbers are kept left to right ("20–21"): inside Hebrew text a phone
+    # would otherwise show them backwards ("21–20", owner's test Nov 24, 2026).
+    return t["preview_pages"].format(range=f"\u2066{pages[0]}–{pages[-1]}\u2069")
 
 
 def page_html(code, data, t):
-    """The album page the customer sees: all the preview images, one under the other."""
+    """The album page the customer sees: the facts about the album in a box,
+    a short note, all the preview images one under the other, and at the bottom
+    what to do next. Hebrew only, aligned right (owner's feedback, Nov 24, 2026)."""
     images = "\n".join(
         f'<figure><img src="/album/{code}/{html.escape(image["name"])}" alt="" '
         f'loading="lazy" draggable="false"><figcaption>'
         f'{html.escape(caption(image["pages"], t))}</figcaption></figure>'
         for image in data["images"])
+    facts = [t["preview_info_pages"].format(pages=data["pages"])]
+    if data.get("photos"):
+        facts.append(t["preview_info_photos"].format(photos=data["photos"]))
+    if data.get("design") and "design_" + data["design"] in t:
+        facts.append(t["preview_info_design"].format(design=t["design_" + data["design"]]))
+    info = "".join(f"<div>{html.escape(fact)}</div>" for fact in facts)
     return _PAGE.format(title=html.escape(t["preview_page_title"]),
-                        note=html.escape(t["preview_page_note"].format(pages=data["pages"])),
-                        images=images)
+                        info=f'<div class="info">{info}</div>',
+                        note=_lines(t["preview_page_note"]), images=images,
+                        end=f'<div class="end">{_lines(t["preview_page_end"])}</div>')
 
 
 def expired_html(t):
-    return _PAGE.format(title=html.escape(t["preview_page_title"]),
-                        note=html.escape(t["preview_link_expired"]), images="")
+    return _PAGE.format(title=html.escape(t["preview_page_title"]), info="",
+                        note=_lines(t["preview_link_expired"]), images="", end="")
+
+
+def _lines(text):
+    """Each line of the text as its own paragraph."""
+    return "".join(f"<p>{html.escape(line)}</p>" for line in text.split("\n") if line.strip())
 
 
 _PAGE = """<!DOCTYPE html>
@@ -109,18 +129,28 @@ _PAGE = """<!DOCTYPE html>
 <meta name="robots" content="noindex, nofollow">
 <title>{title}</title>
 <style>
- body {{ margin:0; padding:16px 10px 40px; background:#eee; color:#333;
-        font-family:-apple-system, Arial, sans-serif; text-align:center; }}
- h1 {{ font-size:22px; margin:6px 0; }}
- p {{ font-size:16px; margin:0 auto 18px; max-width:600px; line-height:1.4; white-space:pre-line; }}
+ body {{ margin:0; padding:18px 12px 40px; background:#eee; color:#333;
+        font-family:-apple-system, Arial, sans-serif; text-align:right; }}
+ .text {{ max-width:600px; margin:0 auto; }}
+ h1 {{ font-size:24px; margin:4px 0 14px; }}
+ .info {{ background:#fff; border-radius:12px; padding:12px 16px; margin-bottom:16px;
+          font-size:18px; line-height:1.8; box-shadow:0 1px 3px #0002; }}
+ p {{ font-size:16px; margin:0 0 6px; line-height:1.5; }}
+ .note {{ margin-bottom:22px; color:#555; }}
  figure {{ margin:0 auto 22px; max-width:900px; }}
  img {{ width:100%; display:block; box-shadow:0 2px 6px #0003;
        -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }}
- figcaption {{ font-size:15px; color:#666; margin-top:6px; }}
+ figcaption {{ font-size:15px; color:#666; margin-top:6px; text-align:center; }}
+ .end {{ max-width:600px; margin:10px auto 0; padding-top:18px; border-top:1px solid #ccc; }}
+ .end p {{ font-size:18px; }}
 </style></head>
 <body oncontextmenu="return false">
+<div class="text">
 <h1>📖 {title}</h1>
-<p>{note}</p>
+{info}
+<div class="note">{note}</div>
+</div>
 {images}
+{end}
 </body></html>
 """

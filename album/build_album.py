@@ -89,8 +89,9 @@ def build(photos, design, title, folder, cover=None, cover_kept=False):
         json.dumps(album.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
     _write_overview(folder, album, files, results, photos)
     previews = preview.make_previews(folder, len(album.pages))
+    in_album = {s.photo for page in [album.cover] + album.pages for s in page.spots if s.photo}
     info.update(pages=len(album.pages), design=design, folder=str(folder),
-                notes=album.notes, previews=previews)
+                notes=album.notes, previews=previews, photos_in_album=len(in_album))
     return info
 
 

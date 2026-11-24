@@ -59,6 +59,14 @@ class PreviewTest(unittest.TestCase):
             page = spread.crop((0, 0, preview.PAGE_PIXELS, preview.PAGE_PIXELS))
             self.assertGreater(len(page.getcolors(1_000_000)), 2)
 
+            # A page alone is the same size as in a spread, on its own side:
+            # page 1 on the left, the last page (6) on the right.
+            for index, side in ((1, "left"), (4, "right")):
+                single = Image.open(made[index]["file"]).convert("RGB")
+                self.assertEqual(single.size, spread.size)
+                empty_x = single.width - 5 if side == "left" else 5
+                self.assertEqual(single.getpixel((empty_x, 5)), preview.EMPTY_SIDE)
+
             # Building again replaces the old previews.
             preview.make_previews(folder, 2)
             self.assertEqual(len(list((folder / preview.FOLDER).glob("*.jpg"))), 3)
@@ -88,9 +96,26 @@ class LinkTest(unittest.TestCase):
         self.assertIn(f"/album/{code}/01-page-1.jpg", page)
         self.assertIn("עמוד 1", page)
         self.assertIn("noindex", page)
+
         self.assertIsNotNone(preview_links.image_path(data, "00-cover.jpg"))
         for name in ("layout.json", "../layout.json", "../../.env", ""):
             self.assertIsNone(preview_links.image_path(data, name), name)
+
+    def test_page_shows_the_album_facts_in_hebrew(self):
+        # Owner's feedback (Nov 24, 2026): right-aligned, Hebrew only, the facts
+        # in a box, "go back to WhatsApp" at the bottom, page numbers in order.
+        t = load_texts("he")
+        code = preview_links.create(self.album, self.previews, 22, links_dir=self.links,
+                                    photos=54, design="colorful")
+        page = preview_links.page_html(code, preview_links.find(code, links_dir=self.links), t)
+        for text in ("22 עמודים + כריכה", "54 תמונות", "עיצוב צבעוני", "חזרו לוואטסאפ"):
+            self.assertIn(text, page)
+        self.assertIn("text-align:right", page)
+        self.assertNotIn("PREVIEW", page)
+        self.assertLess(page.index("22 עמודים"), page.index("/01-page-1.jpg"))
+        self.assertGreater(page.index("חזרו לוואטסאפ"), page.index("/01-page-1.jpg"))
+        # "20–21" stays left to right inside the Hebrew caption.
+        self.assertEqual(preview_links.caption([20, 21], t), "עמודים \u206620–21\u2069")
 
     def test_wrong_or_old_codes_open_nothing(self):
         for code in ("", "short", "../" * 11 + "xx", "a" * 32):
