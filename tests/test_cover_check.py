@@ -106,9 +106,14 @@ class AlbumSideTest(unittest.TestCase):
         self.assertTrue(result["without_hd"])
         self.assertLess(result["dpi"], 150)
 
-    def test_upright_photo_without_hd_is_fine(self):
-        result = check_cover.check("a", make_photo((1536, 2048)))
-        self.assertTrue(result["ok"])
+    def test_upright_photo_without_hd_asks_for_hd(self):
+        # Owner's test (Nov 24, 2026): photos without HD passed at 195 DPI. Now
+        # under 200 the customer is asked to resend in HD ("low": still full size).
+        for size in [(1536, 2048), (2048, 1536)]:
+            result = check_cover.check("a", make_photo(size))
+            self.assertEqual((result["ok"], result["problem"]), (False, "low"))
+            self.assertEqual(result["dpi"], 195)
+            self.assertTrue(result["without_hd"])
 
     def test_blurry_photo(self):
         result = check_cover.check("a", make_photo((3000, 4000), blur=True))

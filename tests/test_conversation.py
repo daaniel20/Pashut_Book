@@ -312,6 +312,17 @@ class ConversationTest(unittest.TestCase):
         talk(state, "photo", cover=None)                         # a new photo = the new cover
         self.assertEqual(conversation.checking_cover(state), 2)
 
+    def test_low_cover_without_hd_kept_full_size(self):
+        state = self.start_cover()
+        low = {"ok": False, "problem": "low", "dpi": 195, "without_hd": True}
+        replies = conversation.cover_checked(state, 1, low, TEXTS)
+        self.assertIn("HD", replies[0]["text"])
+        self.assertEqual(replies[0]["buttons"][0]["title"], TEXTS["button_cover_new_hd"])
+        replies = talk(state, "button", "cover_keep")
+        self.assertEqual(conversation.cover_photo(state), 1)
+        self.assertEqual(replies[0]["text"], TEXTS["cover_kept_full"].format(max=conversation.MAX_PHOTOS))
+        self.assertNotIn("קטנה", replies[0]["text"])       # not made smaller
+
     def test_keep_a_small_cover(self):
         state = self.start_cover()
         small = {"ok": False, "problem": "small", "dpi": 120, "without_hd": False}
