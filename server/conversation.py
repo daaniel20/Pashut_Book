@@ -275,7 +275,7 @@ def cover_checked(state, number, result, t):
 
 def cover_problem_message(t, problem):
     """The cover photo is too small or blurry: send another, or continue with it?"""
-    if problem not in ("small", "small_hd", "low", "low_hd", "blurry"):
+    if problem not in ("small", "small_hd", "low", "low_hd", "blurry", "shape"):
         problem = "small"
     new = t["button_cover_new_hd"] if problem.endswith("_hd") else t["button_cover_new"]
     return {"text": t["cover_problem_" + problem], "buttons": [

@@ -323,6 +323,15 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(replies[0]["text"], TEXTS["cover_kept_full"].format(max=conversation.MAX_PHOTOS))
         self.assertNotIn("קטנה", replies[0]["text"])       # not made smaller
 
+    def test_cover_too_wide(self):
+        state = self.start_cover()
+        shape = {"ok": False, "problem": "shape", "dpi": 385, "without_hd": False}
+        replies = conversation.cover_checked(state, 1, shape, TEXTS)
+        self.assertEqual(replies[0]["text"], TEXTS["cover_problem_shape"])
+        self.assertEqual(replies[0]["buttons"][0]["title"], TEXTS["button_cover_new"])
+        replies = talk(state, "button", "cover_keep")
+        self.assertIn("קטנה", replies[0]["text"])          # "we'll show it smaller"
+
     def test_keep_a_small_cover(self):
         state = self.start_cover()
         small = {"ok": False, "problem": "small", "dpi": 120, "without_hd": False}

@@ -562,6 +562,13 @@ def _cover(usable, style, title, chosen=None):
     return cover, "below"
 
 
+def fills_cover(photo):
+    """True if the photo can fill the square cover edge to edge (at most half
+    cut off, every face kept). A screenshot or panorama can't: it's shown smaller."""
+    return _cut(photo, designs.PAGE_WIDTH / designs.PAGE_HEIGHT,
+                full_page=True, cover=True) is not None
+
+
 def cover_dpi(photo):
     """How sharp this photo would print on the front cover, in dots per inch
     (task 2.5), filling the cover edge to edge (cut to the cover's shape).
