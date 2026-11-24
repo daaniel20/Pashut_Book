@@ -43,8 +43,9 @@ class LayoutTest(unittest.TestCase):
         photos = fake_photos(60, skip={5, 6})
         album = layout.make_album(photos, "classic")
         names = placed(album)
-        expected = [p.name for p in photos if p.grade != "skip"]
-        self.assertEqual(sorted(names), expected)
+        cover = album.cover.spots[0].photo
+        expected = [p.name for p in photos if p.grade != "skip" and p.name != cover]
+        self.assertEqual(sorted(names), expected)   # the cover photo isn't used again inside
         self.assertEqual(album.left_out, ["005", "006"])
         # Photos may swap places on a page, but each page follows the one before.
         pages = [sorted(s.photo for s in page.spots) for page in album.pages if page.spots]
@@ -61,7 +62,7 @@ class LayoutTest(unittest.TestCase):
 
     def test_few_photos_warns_the_owner(self):
         album = layout.make_album(fake_photos(9), "classic")
-        self.assertEqual(len(placed(album)), 9)
+        self.assertEqual(len(placed(album)), 8)     # + the cover photo
         self.assertEqual(len(album.pages) % designs.PAGE_MULTIPLE, 0)
         self.assertTrue(album.notes)
 
@@ -128,8 +129,8 @@ class FacesTest(unittest.TestCase):
     """Task 2.2 feedback: no cut faces, people or raised hands."""
 
     def shown(self, album, name):
-        """(spot, crop) of a photo in the album."""
-        return next((spot, spot.crop) for page in album.pages
+        """(spot, crop) of a photo in the album (the cover counts too)."""
+        return next((spot, spot.crop) for page in [album.cover] + album.pages
                     for spot in page.spots if spot.photo == name)
 
     def assert_faces_kept(self, album, photos):
@@ -212,7 +213,7 @@ class CoverTest(unittest.TestCase):
         self.assertEqual(spot.photo, "012")
         self.assertEqual((spot.x, spot.y, spot.width, spot.height),
                          (0, 0, designs.PAGE_WIDTH, designs.PAGE_HEIGHT))
-        self.assertIn("012", placed(album))          # also inside the album
+        self.assertNotIn("012", placed(album))       # not again inside (owner, Nov 24)
 
     def test_small_cover_photo_is_shown_smaller(self):
         # Task 2.5: the owner's cover printed at 146 DPI (a wide photo without HD).
@@ -281,7 +282,24 @@ class CoverTest(unittest.TestCase):
         album = layout.make_album(photos + [burst], "classic", "x", cover="045")
         self.assertEqual(album.cover.spots[0].photo, "045")    # their chosen shot
         self.assertNotIn("045", placed(album))                 # not twice inside
+        self.assertNotIn("007", placed(album))                 # nor its almost-twin
         self.assertEqual(album.notes, [])
+
+    def test_cover_photo_is_not_used_again_inside(self):
+        # Owner's test (Nov 24, 2026): the cover photo was also an edge-to-edge
+        # page inside. The cover, sent again or as an almost identical shot,
+        # appears only on the cover.
+        photos = fake_photos(30)
+        photos[0].duplicate_of = "010"       # 001 = the cover, 010 an almost identical shot
+        photos[0].problems, photos[0].grade = ["similar"], "skip"
+        album = layout.make_album(photos, "classic", None, cover="001")
+        self.assertEqual(album.cover.spots[0].photo, "001")
+        self.assertNotIn("001", placed(album))
+        self.assertNotIn("010", placed(album))
+        self.assertEqual(len(placed(album)), 28)
+        # Only one photo: it's still used inside rather than an empty album.
+        album = layout.make_album(fake_photos(1), "classic")
+        self.assertEqual(placed(album), ["001"])
 
     def test_blurry_cover_choice_falls_back_and_tells_the_owner(self):
         photos = fake_photos(20, skip={3})
