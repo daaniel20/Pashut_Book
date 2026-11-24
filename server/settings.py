@@ -11,6 +11,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_DIR / ".env"
 TEXTS_DIR = Path(__file__).resolve().parent / "texts"
 PAGES_DIR = Path(__file__).resolve().parent / "pages"
+MEDIA_DIR = Path(__file__).resolve().parent / "media"   # e.g. the HD how-to clip
 
 
 def read_env(path=ENV_FILE):
