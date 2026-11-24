@@ -140,6 +140,7 @@ def _write_overview(folder, album, files, results, photos):
 </style></head><body>
 <h2>אלבום: {len(pages)} עמודים · עיצוב {design_name} ·
 {sum(r.grade != "skip" for r in results)} תמונות</h2>
+<p>תמונת הכריכה לא חוזרת בתוך האלבום.</p>
 {notes}
 <div class="spread">{page(files[0], 0)}</div>
 {''.join(rows)}

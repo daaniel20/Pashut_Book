@@ -146,6 +146,10 @@ def make_album(photos, design, title=None, cover=None, cover_kept=False):
         album.notes.append(f"The cover photo ({chosen.name}) is too small or blurry to fill "
                            f"the cover ({cover_dpi(chosen)} DPI edge to edge): it is shown smaller. "
                            "Check the cover before printing.")
+    # The cover photo is not used again inside (owner's decision, Nov 24, 2026:
+    # the same photo twice looks like a mistake), nor copies of it.
+    cover_twins = _copies_of(photos, album.cover.spots[0].photo)
+    usable = [p for p in usable if p.name not in cover_twins] or usable
     full = pick_full_pages(usable, style, album.cover.spots[0].photo)
     sizes = plan_pages(usable, style, full)
     recent = []   # templates of the last pages, for variety
@@ -189,6 +193,15 @@ def _cover_choice(photos, cover, kept=False):
     if problems and problems <= {"similar", "duplicate"}:
         return chosen   # an almost-identical shot: they chose this one, so use it
     return None
+
+
+def _copies_of(photos, name):
+    """The names of this photo and of every copy of it: the same photo sent
+    twice, or an almost identical shot (quality.py links them by duplicate_of)."""
+    photo = next((p for p in photos if p.name == name), None)
+    original = getattr(photo, "duplicate_of", None) or name
+    return {original, name} | {p.name for p in photos
+                               if getattr(p, "duplicate_of", None) == original}
 
 
 def page_count(count):
@@ -560,6 +573,13 @@ def _cover(usable, style, title, chosen=None):
                             height=height - 2 * margin - text_height, small=False))
     _fit_photo(cover.spots[0], photo)
     return cover, "below"
+
+
+def fills_cover(photo):
+    """True if the photo can fill the square cover edge to edge (at most half
+    cut off, every face kept). A screenshot or panorama can't: it's shown smaller."""
+    return _cut(photo, designs.PAGE_WIDTH / designs.PAGE_HEIGHT,
+                full_page=True, cover=True) is not None
 
 
 def cover_dpi(photo):

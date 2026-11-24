@@ -108,14 +108,25 @@ class AlbumSideTest(unittest.TestCase):
         self.assertTrue(result["without_hd"])
         self.assertLess(result["dpi"], 150)
 
-    def test_upright_photo_without_hd_asks_for_hd(self):
-        # Owner's test (Nov 24, 2026): photos without HD passed at 195 DPI. Now
-        # under 200 the customer is asked to resend in HD ("low": still full size).
+    def test_normal_photo_without_hd_is_fine(self):
+        # Owner's decision (Nov 24, 2026): a normal 4:3 phone photo without HD
+        # (195 DPI) is not stopped; asking at 180 DPI and under.
         for size in [(1536, 2048), (2048, 1536)]:
             result = check_cover.check("a", make_photo(size))
-            self.assertEqual((result["ok"], result["problem"]), (False, "low"))
-            self.assertEqual(result["dpi"], 195)
-            self.assertTrue(result["without_hd"])
+            self.assertEqual((result["ok"], result["dpi"]), (True, 195))
+
+    def test_3_2_photo_without_hd_asks_for_hd(self):
+        result = check_cover.check("a", make_photo((2048, 1365)))
+        self.assertEqual((result["ok"], result["problem"]), (False, "low"))
+        self.assertEqual(result["dpi"], 173)
+        self.assertTrue(result["without_hd"])
+
+    def test_screenshot_does_not_fill_the_cover(self):
+        # Owner's test (Nov 24, 2026): a sideways YouTube screenshot (2622x1206) passed.
+        result = check_cover.check("a", make_photo((2622, 1206)))
+        self.assertEqual((result["ok"], result["problem"]), (False, "shape"))
+        result = check_cover.check("a", make_photo((1206, 2622)))     # held upright
+        self.assertEqual(result["problem"], "shape")
 
     def test_blurry_photo(self):
         result = check_cover.check("a", make_photo((3000, 4000), blur=True))

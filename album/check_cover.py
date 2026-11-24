@@ -14,9 +14,11 @@ Run from the project folder, with the project's Python (.venv):
 The answer:
   ok          True if the photo is fine for the cover
   problem     "small" (prints under 150 DPI when cut to the cover's square shape:
-              the album shows it smaller), "low" (150-199 DPI: fine full size,
-              a bit less sharp; every photo sent without HD lands here or lower),
-              or "blurry", or none
+              the album shows it smaller), "low" (150-179 DPI, printer.COVER_ASK_DPI:
+              fine full size, a bit less sharp, e.g. a 3:2 photo without HD),
+              "shape" (too wide or too tall to fill the square cover, e.g. a
+              screenshot or panorama, or faces right at both edges: the album
+              shows it smaller, with white around it), or "blurry", or none
   dpi         how sharp it would print on the cover (dots per inch; 300 is perfect)
   without_hd  True if it looks like it was sent without HD (exactly 2048 px)
 """
@@ -40,11 +42,13 @@ def check(name, data):
     problem = None
     if "too_small" in result.problems or dpi < printer.LOW_DPI:
         problem = "small"
+    elif not layout.fills_cover(result):
+        # Owner's test (Nov 24, 2026): a sideways YouTube screenshot passed,
+        # because shown smaller it is sharp (385 DPI). But it doesn't fill the cover.
+        problem = "shape"
     elif "blurry" in result.problems:
         problem = "blurry"
-    elif dpi < printer.GOOD_DPI:
-        # Owner's test (Nov 24, 2026): photos without HD passed at 195 DPI;
-        # the owner wants customers asked to resend those in HD too.
+    elif dpi < printer.COVER_ASK_DPI:
         problem = "low"
     return {"ok": problem is None, "problem": problem, "dpi": dpi,
             "without_hd": result.long_side == quality.WITHOUT_HD_PIXELS}
@@ -87,7 +91,11 @@ def main():
         print(f"✅ Fine for the cover ({result['dpi']} DPI).")
     else:
         hd = " It looks like it was sent without HD." if result["without_hd"] else ""
-        print(f"⚠️ {result['problem']} ({result['dpi']} DPI on the cover).{hd}")
+        if result["problem"] == "shape":
+            print(f"⚠️ shape: too wide or too tall to fill the cover; it would be shown "
+                  f"smaller ({result['dpi']} DPI).")
+        else:
+            print(f"⚠️ {result['problem']} ({result['dpi']} DPI on the cover).{hd}")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,13 @@ JPEG_QUALITY = 95    # the pages are stored as high-quality JPEG inside the PDF
 GOOD_DPI = 200       # 200+ looks fine in print
 LOW_DPI = 150        # below this it looks blurry: replace the photo
 
+# The cover photo check (task 2.5): under this, the bot asks the customer for
+# the photo in HD (or another photo). 180 lets a normal phone photo (4:3) sent
+# without HD through (195 DPI), so grandparents aren't stopped for nothing,
+# but catches wider shapes: 3:2 (173), 16:9 (146), panoramas.
+# (Owner's decision, Nov 24, 2026, after trying 200: too many interruptions.)
+COVER_ASK_DPI = 180
+
 # The cover in its own file (most printers), or as page 1 of the same file.
 COVER_SEPARATE = True
 
