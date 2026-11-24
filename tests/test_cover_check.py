@@ -60,7 +60,8 @@ class BotSideTest(unittest.TestCase):
     def test_small_cover(self):
         self.result = {"ok": False, "problem": "small", "dpi": 146, "without_hd": True}
         self.orders.answer(PHONE, "photo", {"id": "m1"}, TEXTS)
-        self.assertEqual([b["id"] for b in self.sent[0]["buttons"]], ["cover_new", "cover_keep"])
+        self.assertEqual([b["id"] for b in self.sent[0]["buttons"] if b["id"] != "restart"],
+                         ["cover_new", "cover_keep"])
         self.assertEqual(self.db.orders[0]["step"], "cover_problem")
 
     def test_photo_not_saved_in_time_is_accepted(self):
@@ -74,6 +75,7 @@ class BotSideTest(unittest.TestCase):
         self.orders.answer(PHONE, "photo", {"id": "m1"}, TEXTS)
         order_id = self.db.orders[0]["id"]
         self.orders.answer(PHONE, "text", "אלבום חדש", TEXTS)
+        self.orders.answer(PHONE, "button", "restart_yes", TEXTS)
         self.assertEqual(self.orders.cover_checked(PHONE, order_id, 1, self.result, TEXTS), [])
 
 

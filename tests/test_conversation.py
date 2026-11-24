@@ -30,9 +30,14 @@ def talk(state, kind, value=None, cover=GOOD_COVER):
 
 
 def button_ids(message):
-    """The IDs of a message's buttons, or of its list's choices."""
+    """The IDs of a message's buttons, or of its list's choices. The "🔄 אלבום חדש"
+    button is left out here (RestartTest checks where it appears)."""
     rows = message["list"]["rows"] if "list" in message else message.get("buttons", [])
-    return [row["id"] for row in rows]
+    return [row["id"] for row in rows if row["id"] != "restart"]
+
+
+def has_restart(message):
+    return any(b["id"] == "restart" for b in message.get("buttons", []))
 
 
 # Most checks here are about other steps and send only a few photos, so the
@@ -140,6 +145,7 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(state["step"], "done")
         self.assertIsNone(state["title"])
         talk(state, "text", "אלבום חדש")
+        talk(state, "button", "restart_yes")   # "are you sure?" -> yes
         self.assertEqual(state["step"], "design")
         self.assertEqual(state["photos"], 0)
 
@@ -461,6 +467,157 @@ class ConversationTest(unittest.TestCase):
                                "interactive": {"button_reply": {"id": "cover_no"}}}),
                          ("button", "cover_no"))
         self.assertEqual(read({"type": "video"}), ("other", "video"))
+
+
+class RestartTest(unittest.TestCase):
+    """The "🔄 אלבום חדש" button and the "are you sure?" question."""
+
+    def setUp(self):
+        conversation.FEW_PHOTOS = 40   # the real value, so "only a few photos?" is asked
+
+    def tearDown(self):
+        conversation.FEW_PHOTOS = 2
+
+    def at_photos(self, photos=3):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(photos):
+            talk(state, "photo")
+        return state
+
+    def finished(self):
+        state = self.at_photos(5)
+        talk(state, "button", "photos_done")
+        talk(state, "button", "few_photos_ok")
+        talk(state, "button", "cover_no")
+        self.assertEqual(state["step"], "done")
+        return state
+
+    def test_not_on_the_first_design_question(self):
+        state = conversation.new_state()
+        replies = talk(state, "text", "שלום")
+        self.assertFalse(has_restart(replies[1]))
+
+    def test_on_messages_with_room_for_it(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        replies = talk(state, "photo")                             # the cover: checking…, then OK
+        self.assertFalse(has_restart(replies[0]))                  # plain text: left alone
+        self.assertTrue(has_restart(replies[-1]))                  # "done" button + restart
+        talk(state, "photo")
+        few = talk(state, "button", "photos_done")[0]              # add photos / continue
+        self.assertTrue(has_restart(few))
+        self.assertEqual(len(few["buttons"]), 3)
+        cover = talk(state, "button", "few_photos_ok")[0]          # already 3 buttons
+        self.assertFalse(has_restart(cover))
+        title = talk(state, "button", "cover_yes")[0]
+        self.assertTrue(has_restart(title))
+        summary = talk(state, "text", "הטיול")[0]
+        self.assertFalse(has_restart(summary))                     # it's in the list
+        listed = talk(state, "button", "edit_menu")[0]
+        self.assertIn("restart", [row["id"] for row in listed["list"]["rows"]])
+
+    def test_asks_first_then_no_keeps_everything(self):
+        state = self.at_photos()
+        replies = talk(state, "button", "restart")
+        self.assertEqual(button_ids(replies[0]), ["restart_yes", "restart_no"])
+        self.assertIn("3 תמונות", replies[0]["text"])
+        replies = talk(state, "button", "restart_no")
+        self.assertEqual(state["step"], "photos")
+        self.assertEqual(state["photos"], 3)
+        self.assertEqual(button_ids(replies[1]), ["photos_done"])
+
+    def test_yes_starts_over(self):
+        state = self.at_photos()
+        talk(state, "button", "restart")
+        replies = talk(state, "button", "restart_yes")
+        self.assertEqual(state["step"], "design")
+        self.assertEqual(state["photos"], 0)
+        self.assertEqual(button_ids(replies[1]), ["design_classic", "design_colorful"])
+
+    def test_typing_new_album_also_asks(self):
+        state = self.at_photos()
+        replies = talk(state, "text", "אלבום חדש")
+        self.assertEqual(button_ids(replies[0]), ["restart_yes", "restart_no"])
+        self.assertEqual(state["photos"], 3)
+
+    def test_nothing_to_lose_starts_over_at_once(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        replies = talk(state, "text", "אלבום חדש")
+        self.assertEqual(state["step"], "design")
+        self.assertIn("ברוכים הבאים", replies[0]["text"])
+
+    def test_an_old_yes_button_asks_again(self):
+        state = self.at_photos()
+        talk(state, "button", "restart")
+        talk(state, "photo")                          # they carried on instead
+        replies = talk(state, "button", "restart_yes")
+        self.assertEqual(state["photos"], 4)          # nothing deleted
+        self.assertEqual(button_ids(replies[0]), ["restart_yes", "restart_no"])
+
+    def test_after_the_summary_the_album_is_kept(self):
+        state = self.finished()
+        replies = talk(state, "button", "restart")
+        self.assertIn("נשמר", replies[0]["text"])
+        talk(state, "button", "restart_no")
+        self.assertEqual(state["step"], "done")
+
+    def test_buttons_fit_whatsapp(self):
+        for key in ["button_restart", "button_restart_yes", "button_restart_no"]:
+            self.assertLessEqual(len(TEXTS[key]), 20, key)
+        self.assertLessEqual(len(TEXTS["button_restart_list"]), 24)
+
+
+class ArrivingPhotosTest(unittest.TestCase):
+    """The WhatsApp "album" bundle, videos, and photos still arriving."""
+
+    def at_photos(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(3):
+            talk(state, "photo")
+        return state
+
+    def test_the_album_bundle_gets_no_answer(self):
+        state = self.at_photos()
+        self.assertEqual(talk(state, "other", "unsupported"), [])
+        talk(state, "photo")
+        self.assertEqual(state["photos"], 4)
+
+    def test_a_video_gets_a_clear_message_once(self):
+        state = self.at_photos()
+        replies = talk(state, "other", "video")
+        self.assertIn("סרטונים לא נכנסים", replies[0]["text"])
+        self.assertEqual(talk(state, "other", "video"), [])
+
+    def test_done_while_photos_arrive_waits(self):
+        state = self.at_photos()
+        state["recent_photo"] = True
+        replies = talk(state, "button", "photos_done")
+        self.assertIn("מוודאים", replies[0]["text"])
+        self.assertEqual(state["step"], "photos")
+        del state["recent_photo"]
+        talk(state, "photo")
+        replies = conversation.photos_settled(state, TEXTS)
+        self.assertEqual(state["step"], "cover")
+        self.assertIn("4 תמונות", replies[0]["text"])
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])   # only once
+
+    def test_photo_after_the_summary_is_added(self):
+        state = self.at_photos()
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        self.assertEqual(state["step"], "done")
+        replies = talk(state, "photo")
+        self.assertEqual(state["photos"], 4)
+        self.assertTrue(state.pop("rebuild"))
+        self.assertIn("נוסיף", replies[0]["text"])
+        self.assertEqual(talk(state, "photo"), [])
+        self.assertEqual(state["photos"], 5)
 
 
 class FewPhotosTest(unittest.TestCase):
