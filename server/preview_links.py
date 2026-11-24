@@ -73,6 +73,22 @@ def find(code, links_dir=LINKS_DIR):
     return data
 
 
+def current(folder, links_dir=LINKS_DIR):
+    """The album's live link: (code, details), or (None, None). Used to show the
+    owner the same page the customer got (task 3.1), without replacing it."""
+    folder = str(folder)
+    for path in links_dir.glob("*.json") if links_dir.exists() else []:
+        try:
+            if json.loads(path.read_text(encoding="utf-8")).get("folder") != folder:
+                continue
+        except (OSError, ValueError):
+            continue
+        data = find(path.stem, links_dir)
+        if data:
+            return path.stem, data
+    return None, None
+
+
 def image_path(data, name):
     """The full path of one preview image of this album, or None."""
     if name not in {image["name"] for image in data["images"]}:

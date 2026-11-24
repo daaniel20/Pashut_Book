@@ -9,6 +9,9 @@ project folder, with the project's Python (.venv):
   .venv/bin/python album/print_pdf.py ~/Desktop/test-photos
       the print files of an album built from a folder
 
+  Add --json to print the result as one line of data (the bot uses this when
+  it asks the owner to approve the album, task 3.1).
+
 It draws exactly the pages in layout.json (what the owner saw), at print
 resolution and with bleed, using the rules in printer.py. The files go next
 to the album, in output/albums/<name>/:
@@ -178,6 +181,8 @@ def _srgb_profile():
 
 def main():
     args = sys.argv[1:]
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
     if len(args) == 2 and args[0] == "--order":
         order, photos = order_photos(args[1])
         folder = OUTPUT_DIR / order["id"][:8]
@@ -195,7 +200,13 @@ def main():
     try:
         report = make_print_files(album, photos, folder)
     except ValueError as error:
+        if as_json:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return
         sys.exit(f"❌ {error}")
+    if as_json:
+        print(json.dumps(dict(report, notes=album.notes), ensure_ascii=False))
+        return
     for problem in report["problems"]:
         print(f"❌ {problem}")
     for warning in report["warnings"]:

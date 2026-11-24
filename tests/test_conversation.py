@@ -437,8 +437,26 @@ class ConversationTest(unittest.TestCase):
         self.assertEqual(button_ids(replies[0]), ["preview_ok", "edit_menu"])
         self.assertEqual(talk(state, "text", "וואו"), [])   # only once
         replies = talk(state, "button", "preview_ok")
-        self.assertIn("תשלום", replies[0]["text"])
+        self.assertIn("בדיקה אחרונה", replies[0]["text"])
+        self.assertTrue(state.pop("ask_owner"))   # orders.py asks the owner (task 3.1)
         self.assertEqual(talk(state, "button", "preview_ok"), [])
+        self.assertNotIn("ask_owner", state)       # only once
+
+    def test_after_love_it_typed_text_goes_to_the_owner(self):
+        state = self.finished_order()
+        state["notes"] += ["previews_sent", "preview_ok", "owner_check", "owner_token:abc"]
+        replies = talk(state, "text", "  מתי זה יגיע? ")
+        self.assertEqual(state.pop("for_owner"), "מתי זה יגיע?")
+        self.assertIn("לצוות", replies[0]["text"])
+
+    def test_a_change_needs_a_new_approval(self):
+        state = self.finished_order()
+        state["notes"] += ["previews_sent", "preview_ok", "owner_check",
+                           "owner_token:abc", "approved"]
+        talk(state, "button", "edit_title")
+        talk(state, "text", "כותרת חדשה")
+        for note in ("preview_ok", "owner_check", "owner_token:abc", "approved"):
+            self.assertNotIn(note, state["notes"])
 
     def test_a_change_after_previews_sends_new_previews(self):
         state = self.finished_order()
@@ -456,7 +474,8 @@ class ConversationTest(unittest.TestCase):
                     "button_edit_title", "button_edit_design",
                     "button_edit_cover", "button_keep_cover", "button_preview_ok",
                     "button_preview_link", "button_cover_new", "button_cover_new_hd",
-                    "button_cover_keep"]:
+                    "button_cover_keep", "button_owner_ok", "button_owner_problem",
+                    "button_owner_write"]:
             self.assertLessEqual(len(TEXTS[key]), 20, key)
 
     def test_reading_whatsapp_messages(self):
