@@ -81,25 +81,14 @@ def image_path(data, name):
     return path if path.is_file() else None
 
 
-def caption(pages, t):
-    """"כריכה", "עמוד 1" or "עמודים 2–3"."""
-    if not pages:
-        return t["preview_cover"]
-    if len(pages) == 1:
-        return t["preview_page"].format(page=pages[0])
-    # The numbers are kept left to right ("20–21"): inside Hebrew text a phone
-    # would otherwise show them backwards ("21–20", owner's test Nov 24, 2026).
-    return t["preview_pages"].format(range=f"\u2066{pages[0]}–{pages[-1]}\u2069")
-
-
 def page_html(code, data, t):
     """The album page the customer sees: the facts about the album in a box,
-    a short note, all the preview images one under the other, and at the bottom
+    a short note, all the preview images one under the other (each page's label,
+    "עמוד 5", is drawn in the image itself, album/preview.py), and at the bottom
     what to do next. Hebrew only, aligned right (owner's feedback, Nov 24, 2026)."""
     images = "\n".join(
         f'<figure><img src="/album/{code}/{html.escape(image["name"])}" alt="" '
-        f'loading="lazy" draggable="false"><figcaption>'
-        f'{html.escape(caption(image["pages"], t))}</figcaption></figure>'
+        f'loading="lazy" draggable="false"></figure>'
         for image in data["images"])
     facts = [t["preview_info_pages"].format(pages=data["pages"])]
     if data.get("photos"):
@@ -140,7 +129,6 @@ _PAGE = """<!DOCTYPE html>
  figure {{ margin:0 auto 22px; max-width:900px; }}
  img {{ width:100%; display:block; box-shadow:0 2px 6px #0003;
        -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }}
- figcaption {{ font-size:15px; color:#666; margin-top:6px; text-align:center; }}
  .end {{ max-width:600px; margin:10px auto 0; padding-top:18px; border-top:1px solid #ccc; }}
  .end p {{ font-size:18px; }}
 </style></head>
