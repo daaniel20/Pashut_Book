@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from itertools import permutations
 
 import designs
+import printer
 
 # The most of a photo we cut off to fill a spot. Photos with people are barely
 # cut (a rule from the Rega album maker, see docs/research-notes.md), photos
@@ -119,10 +120,12 @@ class Album:
                    left_out=data.get("left_out", []), notes=data.get("notes", []))
 
 
-def make_album(photos, design, title=None, cover=None):
+def make_album(photos, design, title=None, cover=None, cover_kept=False):
     """photos: PhotoCheck results from quality.check_all(), in album order
     (anything with .name, .width, .height and .grade works).
-    cover: the name of the photo the customer chose for the cover, if any."""
+    cover: the name of the photo the customer chose for the cover, if any.
+    cover_kept: the bot warned the customer that this cover photo is blurry or
+    too small and they chose to keep it (task 2.5): it is used anyway, smaller."""
     if design not in designs.DESIGNS:
         raise ValueError(f"Unknown design: {design}")
     style = designs.DESIGNS[design]
@@ -133,11 +136,16 @@ def make_album(photos, design, title=None, cover=None):
     if not usable:
         raise ValueError("No usable photos")
 
-    chosen = _cover_choice(photos, cover)
+    chosen = _cover_choice(photos, cover, cover_kept)
     if cover and chosen is None:
         album.notes.append(f"The customer's cover photo ({cover}) can't be used "
                            "(blurry or too small): another photo was chosen.")
     album.cover, album.title_place = _cover(usable, style, title, chosen)
+    if chosen and album.title_place == "below" and (
+            _blurry(chosen) or cover_dpi(chosen) < printer.LOW_DPI):
+        album.notes.append(f"The cover photo ({chosen.name}) is too small or blurry to fill "
+                           f"the cover ({cover_dpi(chosen)} DPI edge to edge): it is shown smaller. "
+                           "Check the cover before printing.")
     full = pick_full_pages(usable, style, album.cover.spots[0].photo)
     sizes = plan_pages(usable, style, full)
     recent = []   # templates of the last pages, for variety
@@ -163,7 +171,7 @@ def make_album(photos, design, title=None, cover=None):
     return album
 
 
-def _cover_choice(photos, cover):
+def _cover_choice(photos, cover, kept=False):
     """The photo to put on the cover for the customer's choice, or None if it
     can't be used. Being a duplicate never blocks the cover (the owner's test:
     a new cover photo was also inside the album, so it was marked "duplicate")."""
@@ -171,6 +179,8 @@ def _cover_choice(photos, cover):
     if chosen is None or chosen.grade != "skip":
         return chosen
     problems = set(getattr(chosen, "problems", []))
+    if kept and not problems & {"unreadable", "too_small"}:
+        return chosen   # blurry, but the customer was told and chose to keep it
     if "duplicate" in problems:
         # Exactly the same photo twice: use the copy that was kept (same picture).
         kept = next((p for p in photos if p.name == getattr(chosen, "duplicate_of", None)), None)
@@ -532,6 +542,8 @@ def _cover(usable, style, title, chosen=None):
                                           or usable[:1])
     for photo in candidates:
         cut = _cut(photo, width / height, full_page=True, cover=True)
+        if cut and (_blurry(photo) or _dpi(photo, cut) < printer.LOW_DPI):
+            cut = None   # too small or blurry to fill the cover: shown smaller, sharper
         place = _title_place(photo, cut) if cut and title else "none"
         if cut and place:
             cover = Page("cover", style["cover_background"])
@@ -548,6 +560,29 @@ def _cover(usable, style, title, chosen=None):
                             height=height - 2 * margin - text_height, small=False))
     _fit_photo(cover.spots[0], photo)
     return cover, "below"
+
+
+def cover_dpi(photo):
+    """How sharp this photo would print on the front cover, in dots per inch
+    (task 2.5), filling the cover edge to edge (cut to the cover's shape).
+    Under printer.LOW_DPI it looks blurry in print, so the album shows it smaller."""
+    cut = _cut(photo, designs.PAGE_WIDTH / designs.PAGE_HEIGHT, full_page=True, cover=True)
+    if cut:
+        return _dpi(photo, cut)
+    # Can't fill the cover without cutting a face: shown smaller (see _cover): the whole photo inside the margins.
+    margin = 1.5 * min(s["margin"] for s in designs.DESIGNS.values())
+    width, _ = _whole_size(photo, designs.PAGE_WIDTH - 2 * margin,
+                           designs.PAGE_HEIGHT - 2 * margin)
+    return round(photo.width / (width / 25.4)) if photo.width else 0
+
+
+def _blurry(photo):
+    return "blurry" in getattr(photo, "problems", [])
+
+
+def _dpi(photo, cut):
+    """Dots per inch of this part of the photo, filling the whole cover."""
+    return round(photo.width * cut[2] / (designs.PAGE_WIDTH / 25.4)) if photo.width else 0
 
 
 def _title_place(photo, cut):

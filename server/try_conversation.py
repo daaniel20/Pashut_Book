@@ -5,6 +5,8 @@ Run:   python3 server/try_conversation.py
 Type like a customer. Special commands:
   1, 2, 3     tap that button (from the bot's last message)
   /photo      send one photo        /photo 30   send 30 photos
+  /photo small   a cover photo that is too small (without HD)
+  /photo blurry  a blurry cover photo
   /video      send a video
   /quit       stop
 Nothing is sent to WhatsApp and nothing is saved.
@@ -14,6 +16,13 @@ import conversation
 from settings import load_texts
 
 texts = load_texts("he")
+# What the cover check (task 2.5) says about the cover photo; normally done in
+# the background by the album tools. Here: good, unless "/photo small" or "/photo blurry".
+COVER_RESULTS = {
+    "good": {"ok": True, "problem": None, "dpi": 300, "without_hd": False},
+    "small": {"ok": False, "problem": "small", "dpi": 146, "without_hd": True},
+    "blurry": {"ok": False, "problem": "blurry", "dpi": 300, "without_hd": False},
+}
 state = conversation.new_state()
 buttons = []
 
@@ -45,8 +54,13 @@ while True:
     if typed.startswith("/photo"):
         parts = typed.split()
         count = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+        cover = parts[1] if len(parts) > 1 and parts[1] in COVER_RESULTS else "good"
         for _ in range(count):
             show(conversation.answer(state, "photo", None, texts))
+            number = conversation.checking_cover(state)
+            if number:
+                print(f"   (checking the cover photo: {cover})")
+                show(conversation.cover_checked(state, number, COVER_RESULTS[cover], texts))
     elif typed == "/video":
         show(conversation.answer(state, "other", "video", texts))
     elif typed.isdigit() and 1 <= int(typed) <= len(buttons):

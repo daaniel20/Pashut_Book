@@ -68,11 +68,12 @@ def left_out_reason(result):
     return "blurry"
 
 
-def build(photos, design, title, folder, cover=None):
-    """Check, plan and draw an album. photos is a list of (name, bytes)."""
+def build(photos, design, title, folder, cover=None, cover_kept=False):
+    """Check, plan and draw an album. photos is a list of (name, bytes).
+    cover_kept: the customer was told the cover photo is blurry or small and kept it."""
     results = quality.check_all(photos)
     info = summary(results)
-    album = layout.make_album(results, design, title, cover)
+    album = layout.make_album(results, design, title, cover, cover_kept)
     box = render.PhotoBox(photos)
     folder.mkdir(parents=True, exist_ok=True)
     for old in [*folder.glob("*.jpg"), *folder.glob("print-*.pdf")]:
@@ -214,12 +215,14 @@ def main():
         title = options["--title"] if options["--title"] is not None else order.get("title")
         folder = OUTPUT_DIR / order["id"][:8]
         cover = options["--cover"] or _chosen_cover(order)
+        cover_kept = "cover_kept" in (order.get("notes") or []) and not options["--cover"]
     elif len(rest) == 1 and not rest[0].startswith("--"):
         photos = photos_from_folder(rest[0])
         design = options["--design"] or "classic"
         title = options["--title"]
         folder = OUTPUT_DIR / Path(rest[0]).expanduser().name
         cover = options["--cover"]
+        cover_kept = False
     else:
         sys.exit(__doc__)
     if design not in designs.DESIGNS:
@@ -230,7 +233,7 @@ def main():
     else:
         print(f"Building a {design} album from {len(photos)} photos…", file=sys.stderr)
         try:
-            info = build(photos, design, title, folder, cover)
+            info = build(photos, design, title, folder, cover, cover_kept)
         except ValueError as error:   # e.g. no usable photos
             info = dict(summary(quality.check_all(photos)), error=str(error))
 

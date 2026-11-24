@@ -12,6 +12,10 @@ Task 2.2: when an order is complete, on_ready(phone, order_id) is called, so
 album_job.py can check the photos and build the album. The photos still being
 saved are counted, so the album waits for them.
 
+Task 2.5: when a cover photo arrives, on_cover(phone, order_id, number) is
+called, so cover_check.py can check it as soon as it is saved. Its answer comes
+back through cover_checked().
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -41,13 +45,16 @@ def short(order_id):
 
 
 class Orders:
-    def __init__(self, db, on_ready=None):
+    def __init__(self, db, on_ready=None, on_cover=None):
         self.db = db
         self.on_ready = on_ready   # called as on_ready(phone, order_id) when an order is complete
+        # called as on_cover(phone, order_id, number) when a cover photo needs checking
+        self.on_cover = on_cover
+        self._cover_checks = set()   # (order_id, number) of cover checks already started
         self._states = {}   # phone -> conversation state
         self._locks = {}    # phone -> lock (one message at a time per customer)
         self._guard = threading.Lock()
-        self._saving = {}   # order_id -> photos still being saved
+        self._saving = {}   # order_id -> numbers of the photos still being saved
         self._saved = threading.Condition()
 
     def lock_for(self, phone):
@@ -100,31 +107,73 @@ class Orders:
             # Count it as "still saving" BEFORE the album may start: a new cover
             # photo is the very message that completes the order again, and the
             # album must wait for it. The caller saves it, then calls photo_done().
-            self.photo_saving(state["order_id"])
+            self.photo_saving(state["order_id"], state["photos"])
 
+        self._check_cover(phone, state)
         if state["step"] == "done" and old_step != "done" and self.on_ready:
             self.on_ready(phone, state["order_id"])
         return replies, photo
 
+    # ---------- the cover check (task 2.5) ----------
+
+    def _check_cover(self, phone, state):
+        """Start checking the cover photo, once. (Also after a restart of the bot,
+        when the customer's next message finds them still at "cover_check".)"""
+        number = conversation.checking_cover(state)
+        key = (state["order_id"], number)
+        if number is None or key in self._cover_checks or not self.on_cover:
+            return
+        self._cover_checks.add(key)
+        self.on_cover(phone, state["order_id"], number)
+
+    def cover_checked(self, phone, order_id, number, result, texts):
+        """The cover photo's check is done. Returns the messages to send
+        ([] if the customer has meanwhile moved on)."""
+        with self.lock_for(phone):
+            self._cover_checks.discard((order_id, number))
+            state = self._states.get(phone)
+            if not state or state["order_id"] != order_id:
+                return []
+            old_step = state["step"]
+            replies = conversation.cover_checked(state, number, result, texts)
+            if not replies:
+                return []
+            try:
+                self.db.update_order(order_id, _fields(state))
+            except DatabaseError as error:
+                log.error("Could not save order %s: %s", short(order_id), error)
+            if state["step"] == "done" and old_step != "done" and self.on_ready:
+                self.on_ready(phone, order_id)   # a new cover chosen from the summary
+            return replies
+
     # ---------- for the album (task 2.2) ----------
 
-    def photo_saving(self, order_id):
+    def photo_saving(self, order_id, number=None):
         """A photo of this order started saving (answer() calls this itself)."""
         with self._saved:
-            self._saving[order_id] = self._saving.get(order_id, 0) + 1
+            self._saving.setdefault(order_id, []).append(number)
 
-    def photo_done(self, order_id):
+    def photo_done(self, order_id, number=None):
         """That photo is saved, or failed for good."""
         with self._saved:
-            self._saving[order_id] -= 1
-            if not self._saving[order_id]:
-                del self._saving[order_id]
+            numbers = self._saving.get(order_id, [])
+            if number in numbers:
+                numbers.remove(number)
+            elif numbers:
+                numbers.pop()
+            if not numbers:
+                self._saving.pop(order_id, None)
             self._saved.notify_all()
 
-    def wait_for_photos(self, order_id, timeout):
-        """Wait until all of the order's photos are saved. False if it took too long."""
+    def wait_for_photos(self, order_id, timeout, number=None):
+        """Wait until all of the order's photos (or only photo number N) are
+        saved. False if it took too long."""
+        def saved():
+            if number is None:
+                return order_id not in self._saving
+            return number not in self._saving.get(order_id, [])
         with self._saved:
-            return self._saved.wait_for(lambda: order_id not in self._saving, timeout)
+            return self._saved.wait_for(saved, timeout)
 
     def notes_of(self, phone, order_id):
         """The order's notes, or None if the customer has moved on to another order."""
