@@ -34,6 +34,9 @@ log = logging.getLogger("bot")
 MAX_PHOTO_BYTES = 40 * 1024 * 1024
 FILE_TYPES = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
               "image/heic": "heic", "image/heif": "heif", "image/webp": "webp"}
+# After "done" is tapped, wait until no new photo arrived for this long before
+# going on: many HD photos take a while to upload, and the tap arrives first.
+QUIET_SECONDS = 30
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
@@ -56,6 +59,9 @@ class Orders:
         self._guard = threading.Lock()
         self._saving = {}   # order_id -> numbers of the photos still being saved
         self._saved = threading.Condition()
+        self.send = None         # send(phone, message), set by bot.py
+        self._last_photo = {}    # phone -> when their last photo arrived (time.monotonic)
+        self._settling = set()   # phones waiting for their photos to stop arriving
 
     def lock_for(self, phone):
         with self._guard:
@@ -75,7 +81,14 @@ class Orders:
         was_finished = old_step == "done" or "editing" in state["notes"]
         count_before = state["photos"]
 
-        replies = conversation.answer(state, kind, value, texts)
+        last = self._last_photo.get(phone)
+        state["recent_photo"] = last is not None and time.monotonic() - last < QUIET_SECONDS
+        try:
+            replies = conversation.answer(state, kind, value, texts)
+        finally:
+            state.pop("recent_photo", None)
+        if kind == "photo":
+            self._last_photo[phone] = time.monotonic()
 
         if "order_id" not in state:
             # "אלבום חדש": answer() started a fresh state, so open a new order.
@@ -112,9 +125,53 @@ class Orders:
             self.photo_saving(state["order_id"], state["photos"])
 
         self._check_cover(phone, state)
-        if state["step"] == "done" and old_step != "done" and self.on_ready:
+        rebuild = state.pop("rebuild", False)   # a photo arrived after the summary
+        if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
             self.on_ready(phone, state["order_id"])
+        if "done_waiting" in state["notes"]:
+            self._settle_later(phone, texts)
         return replies, photo
+
+    # ---------- "done" tapped while photos are still arriving ----------
+
+    def _settle_later(self, phone, texts):
+        with self._guard:
+            if phone in self._settling:
+                return
+            self._settling.add(phone)
+        threading.Thread(target=self._settle, args=(phone, texts), daemon=True).start()
+
+    def _settle(self, phone, texts):
+        try:
+            while True:
+                last = self._last_photo.get(phone)
+                left = 0 if last is None else QUIET_SECONDS - (time.monotonic() - last)
+                if left <= 0:
+                    break
+                time.sleep(min(left + 0.05, QUIET_SECONDS))
+            with self._guard:
+                self._settling.discard(phone)
+            with self.lock_for(phone):
+                state = self._states.get(phone)
+                if not state:
+                    return
+                old_step = state["step"]
+                replies = conversation.photos_settled(state, texts)
+                if not replies:
+                    return
+                try:
+                    self.db.update_order(state["order_id"], _fields(state))
+                except DatabaseError as error:
+                    log.error("Could not save order %s: %s", short(state["order_id"]), error)
+                if state["step"] == "done" and old_step != "done" and self.on_ready:
+                    self.on_ready(phone, state["order_id"])
+            for message in replies:
+                if self.send:
+                    self.send(phone, message)
+        except Exception:
+            with self._guard:
+                self._settling.discard(phone)
+            log.exception("Something went wrong after the photos stopped arriving")
 
     # ---------- the cover check (task 2.5) ----------
 
@@ -229,6 +286,9 @@ class Orders:
                     "photos": row["photo_count"], "title": row["title"],
                     "notes": list(row["notes"] or []),
                 }
+                if "done_waiting" in self._states[phone]["notes"]:
+                    # The bot restarted while waiting for the last photos: don't wait again.
+                    self._states[phone]["notes"].remove("done_waiting")
             else:
                 state = conversation.new_state()
                 state["order_id"] = self._new_order(phone, state)

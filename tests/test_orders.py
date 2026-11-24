@@ -29,13 +29,18 @@ SMALL_COVER = {"ok": False, "problem": "small", "dpi": 146, "without_hd": True}
 
 
 def setUpModule():
-    global _real_few
+    global _real_few, _real_quiet
     _real_few = orders.conversation.FEW_PHOTOS
     orders.conversation.FEW_PHOTOS = 2
+    # These checks tap "done" right after the photos; waiting for the photos to
+    # stop arriving is checked in WaitForPhotosTest, with a short real wait.
+    _real_quiet = orders.QUIET_SECONDS
+    orders.QUIET_SECONDS = 0
 
 
 def tearDownModule():
     orders.conversation.FEW_PHOTOS = _real_few
+    orders.QUIET_SECONDS = _real_quiet
 
 
 class FakeDatabase:
@@ -227,6 +232,78 @@ class OrdersTest(unittest.TestCase):
         self.db.down = False
         replies, _ = self.say("text", "שלום")
         self.assertEqual(len(replies), 2)  # welcome + design buttons
+
+
+class WaitForPhotosTest(unittest.TestCase):
+    """"Done" tapped while HD photos are still arriving; photos after the summary."""
+
+    def setUp(self):
+        orders.QUIET_SECONDS = 0.3
+        self.db = FakeDatabase()
+        self.ready, self.sent, self.covers = [], [], []
+        self.orders = orders.Orders(self.db, on_ready=lambda *a: self.ready.append(a),
+                                    on_cover=lambda *a: self.covers.append(a))
+        self.orders.send = lambda phone, message: self.sent.append(message)
+
+    def tearDown(self):
+        orders.QUIET_SECONDS = 0
+
+    def say(self, kind, value=None):
+        replies, job = self.orders.answer(PHONE, kind, value, TEXTS)
+        if job:   # like bot.py: save the photo, then the cover check (task 2.5)
+            orders.save_photo(self.db, FakeWhatsApp(), job[0], job[1], value)
+            self.orders.photo_done(job[0], job[1])
+            replies += self.check_covers(GOOD_COVER)
+        return replies
+
+    check_covers = OrdersTest.check_covers
+
+    def wait_until(self, condition):
+        for _ in range(100):
+            if condition():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_done_waits_until_the_photos_stop(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        for n in range(1, 4):
+            self.say("photo", photo(n))
+        replies = self.say("button", "photos_done")       # photos still arriving
+        self.assertIn("מוודאים", replies[0]["text"])
+        self.assertEqual(self.say("button", "photos_done"), [])   # a second tap: quiet
+        for n in range(4, 6):
+            self.say("photo", photo(n))                   # the last photos arrive
+        self.assertTrue(self.wait_until(lambda: self.sent))
+        self.assertIn("קיבלנו 5 תמונות", self.sent[0]["text"])   # the full count
+        self.assertEqual(self.db.orders[0]["step"], "cover")
+        self.assertNotIn("done_waiting", self.db.orders[0]["notes"])
+
+    def test_done_after_a_pause_goes_on_at_once(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        for n in range(1, 4):
+            self.say("photo", photo(n))
+        time.sleep(0.35)
+        replies = self.say("button", "photos_done")
+        self.assertIn("קיבלנו 3 תמונות", replies[0]["text"])
+
+    def test_photo_after_the_summary_rebuilds_the_album(self):
+        orders.QUIET_SECONDS = 0
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        for n in range(1, 4):
+            self.say("photo", photo(n))
+        self.say("button", "photos_done")
+        self.say("button", "cover_no")
+        self.assertEqual(len(self.ready), 1)
+        replies = self.say("photo", photo(4))
+        self.assertIn("נוסיף אותן", replies[0]["text"])
+        self.assertEqual(self.say("photo", photo(5)), [])   # said once
+        self.assertEqual(len(self.ready), 3)                # built again (album_job merges)
+        self.assertEqual(self.db.orders[0]["photo_count"], 5)
+        self.assertEqual(len(self.db.files), 5)
 
 
 class AlbumReadyTest(unittest.TestCase):

@@ -14,7 +14,10 @@ The steps, in order:
               Continuing adds the note "cover_kept": the album shows it smaller.
               The photo being checked is "cover_check:N"; it becomes the cover
               ("cover_photo:N") only once it is accepted.
-  photos   -> waiting for photos, until the customer taps "done"
+  photos   -> waiting for photos, until the customer taps "done". If photos are
+              still arriving when "done" is tapped (orders.py sets "recent_photo"),
+              the bot says "making sure all photos arrived…" (note "done_waiting")
+              and orders.py calls photos_settled() once no photo came for a while.
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
@@ -94,6 +97,10 @@ def answer(state, kind, value, texts):
     """Update the customer's state and return the messages to send back."""
     t = texts
     words = _clean(value) if kind == "text" else ""
+    if kind == "other" and value == "unsupported":
+        # WhatsApp sends this e.g. for the "album" bundle of many photos sent
+        # together; the photos themselves arrive one by one. Nothing to answer.
+        return []
     restart = _restart(state, kind, value, words, t)
     if restart is not None:
         return restart
@@ -162,23 +169,20 @@ def _answer(state, kind, value, words, t):
         if few_ok:
             state["notes"].append("few_photos_ok")
         if few_ok or (kind == "button" and value == "photos_done") or words in _word_list(t, "done_words"):
-            if state["photos"] == 0:
-                return [_text(t["no_photos_yet"])]
-            if state["photos"] == 1 and cover_photo(state) == 1:
-                # Only the cover photo so far: that's not an album yet.
-                return [_done_button(t, t["only_cover_photo"])]
-            if state["photos"] < FEW_PHOTOS and "few_photos_ok" not in state["notes"]:
-                return [_few_photos_buttons(t, state)]
-            if "cover_asked" in state["notes"]:
-                # They already answered about the cover (they're resending photos in HD).
-                return _finish(state, t)
-            state["step"] = "cover"
-            state["notes"].append("cover_asked")
-            return [_cover_buttons(t, state)]
+            if "done_waiting" in state["notes"]:
+                return []   # already waiting for the last photos
+            if state.get("recent_photo"):
+                # Photos are still arriving (many HD photos take a while to upload):
+                # wait until they stop, so the count and the album are complete.
+                state["notes"].append("done_waiting")
+                return [_text(t["photos_wait"])]
+            return _photos_done(state, t)
         if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
             return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
         if kind == "other":
-            return _once(state, "not_a_photo", [_done_button(t, t["not_a_photo"])])
+            note = "video" if value == "video" else "not_a_photo"
+            text = t["video_not_used"] if value == "video" else t["not_a_photo"]
+            return _once(state, note, [_done_button(t, text)])
         return [_done_button(t, t["photos_reminder"])]
 
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]) and step in ("cover", "title"):
@@ -242,6 +246,34 @@ def _answer(state, kind, value, words, t):
     if _tapped(kind, value, words, "preview_ok", t["button_preview_ok"]):
         return _once(state, "preview_ok", [_text(t["preview_ok"])])
     return _after_done(state, t)
+
+
+def photos_settled(state, t):
+    """No new photo for a while after "done" was tapped (called by orders.py):
+    go on to the next question. [] if the customer has meanwhile moved on."""
+    if "done_waiting" not in state["notes"]:
+        return []
+    state["notes"].remove("done_waiting")
+    if state["step"] != "photos":
+        return []
+    return [with_restart(state, m, t) for m in _photos_done(state, t)]
+
+
+def _photos_done(state, t):
+    """The customer has finished sending photos."""
+    if state["photos"] == 0:
+        return [_text(t["no_photos_yet"])]
+    if state["photos"] == 1 and cover_photo(state) == 1:
+        # Only the cover photo so far: that's not an album yet.
+        return [_done_button(t, t["only_cover_photo"])]
+    if state["photos"] < FEW_PHOTOS and "few_photos_ok" not in state["notes"]:
+        return [_few_photos_buttons(t, state)]
+    if "cover_asked" in state["notes"]:
+        # They already answered about the cover (they're resending photos in HD).
+        return _finish(state, t)
+    state["step"] = "cover"
+    state["notes"].append("cover_asked")
+    return [_cover_buttons(t, state)]
 
 
 def with_restart(state, message, t):
@@ -416,7 +448,16 @@ def _on_photo(state, t):
         state["photos"] = 1
         return [_done_button(t, t["hd_resending"])]
     if step == "done":
-        return _after_done(state, t)
+        if state["photos"] >= MAX_PHOTOS:
+            return _after_done(state, t)
+        # A photo that arrives after the summary (still uploading, or sent late):
+        # it goes into the album, which is built again (orders.py sees "rebuild").
+        state["photos"] += 1
+        state["rebuild"] = True
+        for note in ("previews_sent", "after_previews", "preview_ok", "after_done"):
+            while note in state["notes"]:
+                state["notes"].remove(note)
+        return _once(state, "late_photos", [_text(t["late_photos"])])
     if step in ("cover_photo", "cover_problem"):
         # The cover photo is also an album photo. A new cover chosen from the
         # summary may go one over the limit; the old cover stays inside.
@@ -548,7 +589,7 @@ def _finish(state, t):
     state["step"] = "done"
     # The album is built again, and its new previews are sent.
     for note in ("editing", "after_done", "confirmed", "previews_sent",
-                 "after_previews", "preview_ok"):
+                 "after_previews", "preview_ok", "late_photos"):
         while note in state["notes"]:
             state["notes"].remove(note)
     return [_summary(state, t)]

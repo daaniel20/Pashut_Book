@@ -297,6 +297,7 @@ def main():
     whatsapp = WhatsApp(env)
     db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
     orders = Orders(db)
+    orders.send = send
     public_url = (env.get("PUBLIC_URL") or DEFAULT_PUBLIC_URL).rstrip("/")
 
     def make_link(result):

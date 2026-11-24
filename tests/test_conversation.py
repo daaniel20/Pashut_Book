@@ -571,6 +571,55 @@ class RestartTest(unittest.TestCase):
         self.assertLessEqual(len(TEXTS["button_restart_list"]), 24)
 
 
+class ArrivingPhotosTest(unittest.TestCase):
+    """The WhatsApp "album" bundle, videos, and photos still arriving."""
+
+    def at_photos(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        for _ in range(3):
+            talk(state, "photo")
+        return state
+
+    def test_the_album_bundle_gets_no_answer(self):
+        state = self.at_photos()
+        self.assertEqual(talk(state, "other", "unsupported"), [])
+        talk(state, "photo")
+        self.assertEqual(state["photos"], 4)
+
+    def test_a_video_gets_a_clear_message_once(self):
+        state = self.at_photos()
+        replies = talk(state, "other", "video")
+        self.assertIn("סרטונים לא נכנסים", replies[0]["text"])
+        self.assertEqual(talk(state, "other", "video"), [])
+
+    def test_done_while_photos_arrive_waits(self):
+        state = self.at_photos()
+        state["recent_photo"] = True
+        replies = talk(state, "button", "photos_done")
+        self.assertIn("מוודאים", replies[0]["text"])
+        self.assertEqual(state["step"], "photos")
+        del state["recent_photo"]
+        talk(state, "photo")
+        replies = conversation.photos_settled(state, TEXTS)
+        self.assertEqual(state["step"], "cover")
+        self.assertIn("4 תמונות", replies[0]["text"])
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])   # only once
+
+    def test_photo_after_the_summary_is_added(self):
+        state = self.at_photos()
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        self.assertEqual(state["step"], "done")
+        replies = talk(state, "photo")
+        self.assertEqual(state["photos"], 4)
+        self.assertTrue(state.pop("rebuild"))
+        self.assertIn("נוסיף", replies[0]["text"])
+        self.assertEqual(talk(state, "photo"), [])
+        self.assertEqual(state["photos"], 5)
+
+
 class FewPhotosTest(unittest.TestCase):
     """Tapping "done" too early: only the cover photo, or only a few photos."""
 
