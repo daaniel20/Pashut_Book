@@ -36,6 +36,7 @@ bot.py) gives the numbers of the photos inside the album. A question after
 The conversation itself (what to answer) is still in conversation.py.
 """
 
+import copy
 import logging
 import threading
 import time
@@ -66,6 +67,10 @@ HD_MIN_KNOWN = 3
 # WhatsApp without HD sends photos exactly this long on the long side
 # (album/quality.py WITHOUT_HD_PIXELS, measured Nov 2026).
 WITHOUT_HD_PIXELS = 2048
+# At most this many new albums per phone number per day (CLAUDE.md rule 11: a
+# finished album is kept when the customer starts over, so its photos stay in
+# storage; without a limit one person could fill the free 1 GB).
+MAX_NEW_ALBUMS_PER_DAY = 3
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
@@ -122,6 +127,7 @@ class Orders:
         if state["step"] == "photo_number" and self.album_numbers:
             # The customer is typing a photo's number: check it against the album.
             state["album_numbers"] = self.album_numbers(state["order_id"])
+        before = copy.deepcopy(state)
         try:
             replies = conversation.answer(state, kind, value, texts)
         finally:
@@ -129,6 +135,19 @@ class Orders:
             state.pop("album_numbers", None)
         if kind == "photo":
             self._last_photo[phone] = time.monotonic()
+
+        asked = "confirm_restart" in state["notes"] and "confirm_restart" not in before["notes"]
+        if ("order_id" not in state or asked) and \
+                self._albums_today(phone) >= MAX_NEW_ALBUMS_PER_DAY:
+            # A new album (or the "are you sure?" before one), but they already
+            # started the most albums for today: nothing changes.
+            before.pop("recent_photo", None)
+            before.pop("album_numbers", None)
+            before["notes"] = [n for n in before["notes"] if n != "confirm_restart"]
+            self._states[phone] = before
+            log.info("Order %s: the customer reached today's new-album limit",
+                     short(before["order_id"]))
+            return [{"text": texts["new_album_limit"].format(max=MAX_NEW_ALBUMS_PER_DAY)}], None
 
         if "order_id" not in state:
             # "אלבום חדש": answer() started a fresh state, so open a new order.
@@ -487,6 +506,17 @@ class Orders:
                 state["order_id"] = self._new_order(phone, state)
                 self._states[phone] = state
         return self._states[phone]
+
+    def _albums_today(self, phone):
+        """How many albums this phone number started today (Israel's day, as
+        set on the Mac). 0 if Supabase can't tell: never block on an error."""
+        midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0,
+                                                       microsecond=0)
+        try:
+            return self.db.orders_since(phone, midnight.isoformat())
+        except (DatabaseError, AttributeError) as error:
+            log.warning("Could not count today's albums: %s", error)
+            return 0
 
     def _new_order(self, phone, state):
         order_id = self.db.create_order(phone, _fields(state))["id"]

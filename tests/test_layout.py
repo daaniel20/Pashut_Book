@@ -339,6 +339,27 @@ class ReplaceTest(unittest.TestCase):
             for spot in page.spots:
                 self.assertLessEqual(spot.x + spot.width, designs.PAGE_WIDTH + 0.01)
 
+    def test_a_photo_of_another_shape_lays_out_only_its_page_again(self):
+        # A wide phone photo (16:9) instead of a photo in an upright spot: cut
+        # to that spot it would lose too much, so its page is laid out again.
+        index, target = next((i, s) for i, page in enumerate(self.old.pages)
+                             if page.template != "full" for s in page.spots
+                             if s.height > s.width * 1.2)
+        gone = target.photo
+        wide = SimpleNamespace(name="051", width=4032, height=2268, grade="ok")
+        photos = [wide if p.name == gone else p for p in self.photos]
+        before = [[(s.photo, s.x, s.y) for s in page.spots] for page in self.old.pages]
+        album = layout.keep_places(self.old, self.plan(photos), {gone: "051"},
+                                   photos + [wide])
+        after = [[(s.photo, s.x, s.y) for s in page.spots] for page in album.pages]
+        for i, (a, b) in enumerate(zip(before, after)):
+            if i != index:
+                self.assertEqual(a, b)          # every other page is untouched
+        spot = next(s for s in album.pages[index].spots if s.photo == "051")
+        # In the page's new layout the photo keeps its wide shape and isn't small.
+        self.assertGreater(spot.width / spot.height, 1.5)
+        self.assertGreater(spot.width, target.width)
+
     def test_other_changes_plan_the_album_again(self):
         photos = [self.new if p.name == self.gone else p for p in self.photos][:-1]
         new = self.plan(photos)

@@ -545,7 +545,8 @@ def keep_places(old, new, replaced, photos):
     """Task 3.2: the customer replaced photos (replaced: {old name: new name}).
     If the new plan holds the same photos as the old album, with only those
     swapped, return the OLD album with each new photo in its old photo's spot,
-    so the rest of the album stays exactly as the customer saw it. Otherwise
+    so the rest of the album stays exactly as the customer saw it. If a new
+    photo doesn't fit its spot's shape, only its page is laid out again. Otherwise
     (other changes too, or the design or title changed) return the new plan.
     photos: the PhotoCheck results (for the new photos' shapes and faces)."""
     def final(name):
@@ -566,13 +567,28 @@ def keep_places(old, new, replaced, photos):
     if final(old.cover.spots[0].photo) != old.cover.spots[0].photo:
         return new   # the cover itself was swapped: let the cover rules decide
     by_name = {p.name: p for p in photos}
-    for page in old.pages:
-        for spot in page.spots:
-            name = final(spot.photo) if spot.photo else None
-            if name and name != spot.photo:
-                spot.photo = name
-                spot.crop = (0, 0, 1, 1)
-                _fit_photo(spot, by_name[name], full_page=page.template == "full")
+    style = designs.DESIGNS[old.design]
+    for number, page in enumerate(old.pages):
+        swaps = [(spot, final(spot.photo)) for spot in page.spots
+                 if spot.photo and final(spot.photo) != spot.photo]
+        if not swaps:
+            continue
+        full = page.template == "full"
+        if all(_cut(by_name[name], spot.width / spot.height, full) is not None
+               for spot, name in swaps):
+            # Every new photo fills its spot (a little trimmed, no face cut):
+            # same spot, the page is untouched otherwise.
+            for spot, name in swaps:
+                spot.photo, spot.crop = name, (0, 0, 1, 1)
+                _fit_photo(spot, by_name[name], full_page=full)
+            continue
+        # A new photo doesn't fit its spot's shape (it would be shown smaller,
+        # with empty space around it): lay out only this page again, with the
+        # same photos; every other page stays as it was (owner's decision, 3.2).
+        group = [by_name[final(s.photo)] for s in page.spots if s.photo]
+        recent = [p.template for p in old.pages[max(0, number - 2):number]]
+        name, order = _best_template(group, recent, False, style)
+        old.pages[number] = _page(name, order, page.background, style)
     old.left_out, old.notes = new.left_out, new.notes
     return old
 
