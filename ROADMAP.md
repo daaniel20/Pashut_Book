@@ -119,7 +119,7 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 3.1 | **Owner approval** on your WhatsApp ("Approve / Problem") | 🤝 | Your approval moves the order forward |
+| 3.1 | **Owner approval** on your WhatsApp ("Approve / Problem"). Guide: [docs/setup/3.1-owner-approval.md](docs/setup/3.1-owner-approval.md) | 🤝 | Your approval moves the order forward. 🔧 Built Nov 24, 2026: after the customer's "😍 אהבתי!", the bot makes the print files and sends you the album link with [✅ לאשר] [⚠️ יש בעיה]; "approve" tells the customer it's ready for printing; "problem" lets you type a message that goes to the customer; the customer's replies come to you. Decided: you approve **before** payment. Not yet tested on the phone |
 | 3.2 | **Payment** (Bit request by hand), **limited changes** (made by hand), **shipping address** | 🤝 | A full order runs from start to finish |
 | 3.3 | **Photo cleanup:** delete photos automatically after delivery | 🤝 | Old test photos disappear by themselves |
 | 3.4 | **First customers served through the bot** | 🙋 | At least one sales-track album went through the bot |

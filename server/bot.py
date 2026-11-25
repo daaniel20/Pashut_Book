@@ -7,6 +7,8 @@ Task 2.2: when an order is complete, check the photos and build the album (album
 Task 2.4: then send the customer a private link to the album's preview
 (album_job.py), and show that page at /album/<code> (preview_links.py).
 Task 2.5: check the cover photo as soon as it arrives (cover_check.py).
+Task 3.1: when the customer loves the album, ask the owner (OWNER_PHONE in .env)
+to approve it, on WhatsApp (owner_approval.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -41,6 +43,7 @@ from album_job import AlbumJobs
 from cover_check import CoverChecks
 from database import Database, DatabaseError
 from orders import Orders, save_photo
+from owner_approval import OwnerApprovals
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
 from whatsapp import WhatsApp, WhatsAppError
 
@@ -87,6 +90,7 @@ _seen_lock = threading.Lock()
 whatsapp = None
 db = None
 orders = None
+owner = None
 photo_savers = ThreadPoolExecutor(max_workers=PHOTO_WORKERS)
 _last_problem_notice = {}
 
@@ -157,7 +161,10 @@ def handle_notice(data):
     for entry in data.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
-            # "statuses" = delivery reports (sent / delivered / read). Ignore.
+            # "statuses" = delivery reports (sent / delivered / read / failed).
+            for status in value.get("statuses", []):
+                if status.get("status") == "failed":
+                    report_failed(status)
             for message in value.get("messages", []):
                 sender = message.get("from")
                 message_id = message.get("id")
@@ -166,6 +173,9 @@ def handle_notice(data):
                 kind, value = conversation.read_message(message)
                 # We log only the message type, never texts or photos.
                 log.info("Got a %s message from %s", message.get("type"), mask_phone(sender))
+                if owner and owner.handles(sender, kind, value):
+                    owner.handle(kind, value)   # the owner's approval (task 3.1)
+                    continue
                 # Many photos arrive at once, each in its own notice. The lock lets
                 # one at a time update this customer's order, so the count is right.
                 with orders.lock_for(sender):
@@ -179,6 +189,21 @@ def handle_notice(data):
                     photo_savers.submit(save_photo_safely, order_id, number, value)
                 for reply in replies:
                     send(sender, reply)
+
+
+def report_failed(status):
+    """Meta accepted a message but could not deliver it: say why in the log."""
+    to = status.get("recipient_id")
+    for error in status.get("errors") or [{}]:
+        log.error("❌ A message to %s was not delivered: %s %s", mask_phone(to),
+                  error.get("code"), error.get("title"))
+        if error.get("code") == 131047:
+            # More than 24 hours since this person last wrote to the bot.
+            who = "the owner" if owner and to == owner.owner else "the customer"
+            log.error("   %s hasn't written to the bot for 24 hours, so WhatsApp blocks "
+                      "free messages. %s", who.capitalize(),
+                      "Type אישורים to the bot to get the waiting albums again."
+                      if who == "the owner" else "They must write first (see guide 3.1).")
 
 
 def problem_notice(sender):
@@ -290,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global whatsapp, db, orders
+    global whatsapp, db, orders, owner
     missing = [name for name in REQUIRED if not env.get(name)]
     if missing:
         sys.exit(f"❌ Missing in {ENV_FILE}: {', '.join(missing)}. See docs/setup/1.1-first-bot.md")
@@ -308,6 +333,12 @@ def main():
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start
     orders.on_cover = CoverChecks(orders, send, TEXTS).start
+    owner = OwnerApprovals(orders, send, TEXTS, env.get("OWNER_PHONE"), public_url)
+    orders.on_approval = owner.start
+    orders.on_customer_text = owner.customer_text
+    if not owner.owner:
+        log.warning("OWNER_PHONE is not set in .env: albums can't be sent to you for "
+                    "approval. See docs/setup/3.1-owner-approval.md")
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

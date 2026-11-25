@@ -50,6 +50,12 @@ class Database:
         self._call("PATCH", "/rest/v1/orders?id=eq." + quote(order_id), fields,
                    prefer="return=minimal")
 
+    def orders_with_note(self, note):
+        """Orders whose notes include this note (e.g. "owner_check": waiting for
+        the owner's approval, task 3.1), oldest first."""
+        return self._call("GET", "/rest/v1/orders?select=id,phone,status&order=created_at"
+                          "&notes=cs." + quote(json.dumps([note])))
+
     def recent_orders(self, limit=5):
         return self._call("GET", f"/rest/v1/orders?order=created_at.desc&limit={limit}"
                           "&select=id,phone,status,step,photo_count,created_at,photos(count)")

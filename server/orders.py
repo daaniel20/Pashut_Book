@@ -16,6 +16,13 @@ Task 2.5: when a cover photo arrives, on_cover(phone, order_id, number) is
 called, so cover_check.py can check it as soon as it is saved. Its answer comes
 back through cover_checked().
 
+Task 3.1: when the customer loves the album, on_approval(phone, order_id) is
+called, so owner_approval.py can ask the owner. Anything the customer types
+after that goes to on_customer_text(phone, order_id, text). The owner's answer
+is saved here (owner_asked, owner_decided). It is kept in the order's notes
+("owner_check", "owner_token:<code>", "approved", "owner_problem"), so no
+database change was needed.
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -63,6 +70,8 @@ class Orders:
         self.send = None         # send(phone, message), set by bot.py
         self._last_photo = {}    # phone -> when their last photo arrived (time.monotonic)
         self._settling = set()   # phones waiting for their photos to stop arriving
+        self.on_approval = None        # on_approval(phone, order_id): ask the owner (task 3.1)
+        self.on_customer_text = None   # on_customer_text(phone, order_id, text): tell the owner
 
     def lock_for(self, phone):
         with self._guard:
@@ -129,6 +138,15 @@ class Orders:
             self.photo_saving(state["order_id"], state["photos"])
 
         self._check_cover(phone, state)
+        if state.pop("ask_owner", False):
+            if self.on_approval:
+                self.on_approval(phone, state["order_id"])
+            else:
+                log.warning("Order %s: the customer loved it, but no owner approval is set up",
+                            short(state["order_id"]))
+        text = state.pop("for_owner", None)
+        if text and self.on_customer_text:
+            self.on_customer_text(phone, state["order_id"], text)
         rebuild = state.pop("rebuild", False)   # a photo arrived after the summary
         if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
             self.on_ready(phone, state["order_id"])
@@ -285,6 +303,78 @@ class Orders:
             except DatabaseError as error:
                 log.error("Could not save order %s: %s", short(order_id), error)
 
+    # ---------- the owner's approval (task 3.1) ----------
+
+    def owner_asked(self, phone, order_id, token):
+        """The owner is being asked about this order. Returns False if the
+        customer has meanwhile changed something (then don't ask)."""
+        with self.lock_for(phone):
+            state = self._current(phone, order_id)
+            if not state or state["step"] != "done" or "preview_ok" not in state["notes"]:
+                return False
+            notes = [n for n in state["notes"] if not n.startswith("owner_token:")
+                     and n not in ("owner_check", "owner_problem", "approved")]
+            state["notes"][:] = notes + ["owner_check", "owner_token:" + token]
+            self._save(state)
+            return True
+
+    def owner_token(self, phone, order_id):
+        """The code of the owner's current request for this order, or None."""
+        with self.lock_for(phone):
+            state = self._current(phone, order_id)
+            return _token(state) if state else None
+
+    def owner_decided(self, phone, order_id, token, decision):
+        """The owner tapped "approve" or "problem". Returns:
+        "ok", "already" (approved before), or "old" (the album changed since,
+        or the customer started another album)."""
+        with self.lock_for(phone):
+            state = self._current(phone, order_id)
+            if not state or _token(state) != token:
+                return "old"
+            if "approved" in state["notes"]:
+                return "already"
+            if decision == "approved":
+                state["notes"][:] = [n for n in state["notes"]
+                                     if n not in ("owner_check", "owner_problem")]
+            elif "owner_problem" in state["notes"]:
+                return "ok"
+            state["notes"].append(decision)
+            self._save(state)
+            return "ok"
+
+    def waiting_for_owner(self):
+        """Orders waiting for the owner: [(phone, order_id)], oldest first."""
+        rows = self.db.orders_with_note("owner_check")
+        return [(row["phone"], row["id"]) for row in rows if row["status"] != "cancelled"]
+
+    def phone_of(self, order_id):
+        """The customer's phone number for an order, or None."""
+        row = self.db.get_order(order_id)
+        return row["phone"] if row else None
+
+    def info(self, phone, order_id):
+        """A copy of the order's details (design, title, photos, notes), or None."""
+        with self.lock_for(phone):
+            state = self._current(phone, order_id)
+            return None if not state else dict(state, notes=list(state["notes"]))
+
+    def _current(self, phone, order_id):
+        """The customer's state if order_id is still their order (loads it from
+        Supabase after a restart), else None."""
+        try:
+            state = self._load(phone)
+        except DatabaseError as error:
+            log.error("Could not load the order of %s: %s", short(order_id), error)
+            return None
+        return state if state["order_id"] == order_id else None
+
+    def _save(self, state):
+        try:
+            self.db.update_order(state["order_id"], _fields(state))
+        except DatabaseError as error:
+            log.error("Could not save order %s: %s", short(state["order_id"]), error)
+
     def _load(self, phone):
         if phone not in self._states:
             row = self.db.latest_order(phone)
@@ -325,6 +415,13 @@ class Orders:
             log.info("Deleted %s photos of cancelled order %s", count, short(order_id))
         except DatabaseError as error:
             log.error("Could not delete photos of order %s: %s", short(order_id), error)
+
+
+def _token(state):
+    for note in state["notes"]:
+        if note.startswith("owner_token:"):
+            return note.split(":", 1)[1]
+    return None
 
 
 def _fields(state):

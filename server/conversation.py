@@ -41,8 +41,14 @@ The steps, in order:
   because the photos are deleted. A finished album is kept (orders.py).
   After the album is built, album_job.py sends the preview images (task 2.4) and
   adds the note "previews_sent". The last preview message has the buttons
-  "love it" (a short thank-you; payment comes in task 3.2) and "change something"
-  (the same list as in the summary; the album is then built and sent again).
+  "love it" and "change something" (the same list as in the summary; the album
+  is then built and sent again).
+  Owner approval (task 3.1): "love it" adds the note "preview_ok" and sets
+  state["ask_owner"], so orders.py asks the owner (owner_approval.py). While the
+  owner checks, the notes are "owner_check" + "owner_token:<code>"; the owner's
+  answer adds "approved" or "owner_problem". From "love it" on, anything the
+  customer types is passed to the owner (state["for_owner"]). Any change to the
+  album clears all of these: the album is built again and needs a new approval.
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -71,6 +77,10 @@ MAX_TITLE_LENGTH = 40
 # The HD how-to clip (owner's iPhone screen recording, HD button circled).
 # Used for every customer for now; an Android clip may come later.
 HD_VIDEO = MEDIA_DIR / "hd-how-to-iphone.mp4"
+# Notes about the finished album, cleared whenever the album changes (it is
+# built again, sent again, and needs the owner's approval again).
+ALBUM_NOTES = ("previews_sent", "after_previews", "preview_ok", "after_done",
+               "owner_check", "owner_problem", "approved")
 # Unicode kinds of characters the album can't print: emojis and other symbols
 # (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
 _NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
@@ -252,14 +262,27 @@ def _answer(state, kind, value, words, t):
     if _tapped(kind, value, words, "confirm", t["button_confirm"]):
         if "previews_sent" in state["notes"]:
             # The old summary button, tapped after the previews: same as "love it".
-            return _once(state, "preview_ok", [_text(t["preview_ok"])])
+            return _loved(state, t)
         if "confirmed" in state["notes"]:
             return []
         state["notes"].append("confirmed")
         return [_text(t["confirmed"])]
     if _tapped(kind, value, words, "preview_ok", t["button_preview_ok"]):
-        return _once(state, "preview_ok", [_text(t["preview_ok"])])
+        return _loved(state, t)
+    if kind == "text" and words and "preview_ok" in state["notes"]:
+        # After "love it", the owner is in the loop (task 3.1): pass it on.
+        state["for_owner"] = value.strip()
+        return [_text(t["sent_to_team"])]
     return _after_done(state, t)
+
+
+def _loved(state, t):
+    """The customer loves the album: ask the owner to approve it (task 3.1)."""
+    if "preview_ok" in state["notes"]:
+        return []
+    state["notes"].append("preview_ok")
+    state["ask_owner"] = True   # orders.py sees this and asks the owner
+    return [_text(t["preview_ok"])]
 
 
 def photos_settled(state, t):
@@ -486,9 +509,7 @@ def _on_photo(state, t):
         # it goes into the album, which is built again (orders.py sees "rebuild").
         state["photos"] += 1
         state["rebuild"] = True
-        for note in ("previews_sent", "after_previews", "preview_ok", "after_done"):
-            while note in state["notes"]:
-                state["notes"].remove(note)
+        album_changed(state)
         return _once(state, "late_photos", [_text(t["late_photos"])])
     if step in ("cover_photo", "cover_problem"):
         # The cover photo is also an album photo. A new cover chosen from the
@@ -622,11 +643,17 @@ def _save_title(state, value, t):
 def _finish(state, t):
     state["step"] = "done"
     # The album is built again, and its new previews are sent.
-    for note in ("editing", "after_done", "confirmed", "previews_sent",
-                 "after_previews", "preview_ok", "late_photos"):
+    album_changed(state)
+    for note in ("editing", "confirmed", "late_photos"):
         while note in state["notes"]:
             state["notes"].remove(note)
     return [_summary(state, t)]
+
+
+def album_changed(state):
+    """The album will be built again: forget its previews and approval."""
+    state["notes"][:] = [n for n in state["notes"]
+                         if n not in ALBUM_NOTES and not n.startswith("owner_token:")]
 
 
 def _summary(state, t):
