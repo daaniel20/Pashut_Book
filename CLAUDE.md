@@ -34,6 +34,7 @@ The parts of the product decided so far:
 7. **Build in small stages.** Ship the simplest working version first. Manual steps are fine early on.
 8. **Sales must not wait for the bot.** The project runs two tracks in parallel: a **build track** (the bot) and a **sales track** (real paying customers, with albums made by hand if the bot isn't ready). Stage 4 starts only after the go/stop decision passes. See README.md and ROADMAP.md.
 9. **Our advantage is marketing, service and speed, not the tool.** Don't over-polish technology the customer doesn't see.
+10. **Record as much data as possible at every step** (owner's goal, Nov 25, 2026). The owner wants to study the data and trends later to improve the process. In every task, record each step of the customer's journey (what happened, when, numbers such as counts, sizes, choices, changes, waiting times) in Supabase, where it can be downloaded as a table. Never record photos or message texts there (principle 5). If a task adds a step, it also records it.
 
 ## Planned tech stack
 
