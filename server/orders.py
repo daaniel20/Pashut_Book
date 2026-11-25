@@ -160,7 +160,9 @@ class Orders:
         if text and self.on_customer_text:
             self.on_customer_text(phone, state["order_id"], text)
         rebuild = state.pop("rebuild", False)   # a photo arrived after the summary
-        if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
+        unchanged = state.pop("unchanged", False)   # "↩️ בלי שינוי": the album stays as it is
+        if state["step"] == "done" and (old_step != "done" or rebuild) and not unchanged \
+                and self.on_ready:
             self.on_ready(phone, state["order_id"])
         if "done_waiting" in state["notes"] or \
                 (kind == "photo" and state["step"] in ("photos", "cover_check")):

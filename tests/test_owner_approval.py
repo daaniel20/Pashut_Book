@@ -98,13 +98,18 @@ class OwnerApprovalTest(unittest.TestCase):
     def test_the_request_shows_the_preview_link_and_print_checks(self):
         owner_approval.preview_links.current = lambda folder: (
             "CODE", {"pages": 22, "photos": 48, "images": [{"name": "00-cover.jpg"}]})
-        self.report = {"problems": ["page 3: photo 007 prints at only 120 DPI"],
+        self.report = {"problems": ["page 3: 007.jpg prints at only 120 DPI (will look blurry), "
+                                    "use a smaller spot or another photo."],
                        "warnings": [f"page {n}: soft" for n in range(7)], "notes": []}
         self.love_it()
         request = self.to(OWNER)[0]
         self.assertEqual(request["link"]["url"], "https://x/album/CODE")
         self.assertIn("22", request["text"])
-        self.assertIn("❌ page 3", request["text"])
+        # One detail per line, in Hebrew (owner's test, task 1.2b).
+        self.assertIn("\n📄 22 עמודים\n", request["text"])
+        self.assertIn("❌ עמוד 3: תמונה 7 תצא מטושטשת", request["text"])
+        self.assertNotIn("DPI", request["text"])
+        self.assertNotIn("page", request["text"])
         # Photos at 150-199 DPI (e.g. without HD) print fine: one line, not a list.
         self.assertNotIn("soft", request["text"])
         self.assertIn("ℹ️ 7", request["text"])
@@ -143,7 +148,7 @@ class OwnerApprovalTest(unittest.TestCase):
         message = self.to(CUSTOMER)[-1]
         self.assertIn("תמונה 12 מטושטשת", message["text"])
         self.assertEqual(message["buttons"][0]["id"], "edit_menu")
-        self.assertIn("נשלח ללקוח …000", self.to(OWNER)[-1]["text"])
+        self.assertIn("טלפון מסתיים ב-000", self.to(OWNER)[-1]["text"])
         self.assertIn("owner_problem", self.db.orders[0]["notes"])
         # The owner's next text is their own again (e.g. as a test customer).
         self.assertFalse(self.owner("text", "שלום"))
@@ -193,3 +198,21 @@ class OwnerApprovalTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HebrewChecksTest(unittest.TestCase):
+    """The print tool's English notes, as the owner reads them in WhatsApp."""
+
+    def test_known_notes(self):
+        t = TEXTS
+        cases = {
+            "cover: 012.jpg prints at only 120 DPI (will look blurry)": "כריכה: תמונה 12 תצא מטושטשת",
+            "23 pages: the printer needs a multiple of 2.": "מספר העמודים (23) לא מתאים",
+            "The customer's cover photo (004.jpg) can't be used (blurry or too small)": "נבחרה תמונה אחרת",
+            "The cover photo (004.jpg) is too small or blurry to fill the cover (120 DPI edge "
+            "to edge): it is shown smaller. Check the cover before printing.": "מוצגת קטנה יותר",
+            "Only 12 usable photos: the album has 20 pages": "רק 12 תמונות טובות",
+            "Something new": "bot.log",
+        }
+        for english, hebrew in cases.items():
+            self.assertIn(hebrew, owner_approval.in_hebrew(english, t), english)

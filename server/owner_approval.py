@@ -35,6 +35,7 @@ The owner's phone may also be a test customer's phone: only the owner's buttons
 
 import json
 import logging
+import re
 import secrets
 import subprocess
 import threading
@@ -105,7 +106,7 @@ class OwnerApprovals:
         info = self.orders.info(phone, order_id) or {}
         folder = ALBUMS_DIR / short(order_id)
         code, link = preview_links.current(folder)
-        facts = {"order": short(order_id), "phone": _last_digits(phone),
+        facts = {"order": _ltr(short(order_id)), "phone": _last_digits(phone),
                  "pages": link["pages"] if link else "?",
                  "photos": (link or {}).get("photos") or info.get("photos", "?"),
                  "design": t.get("design_" + str(info.get("design")), "?"),
@@ -140,7 +141,7 @@ class OwnerApprovals:
         # 150 DPI) and the album's own notes (📝). Photos at 150-199 DPI, e.g. every
         # photo sent without HD (195), print fine: one summary line, not a list.
         for kind, items in (("❌", report.get("problems", [])), ("📝", report.get("notes", []))):
-            lines += [f"{kind} {item}" for item in items[:MAX_LINES]]
+            lines += [f"{kind} {in_hebrew(item, t)}" for item in items[:MAX_LINES]]
             if len(items) > MAX_LINES:
                 lines.append(t["owner_more"].format(count=len(items) - MAX_LINES))
         text = t["owner_print_check"] + "\n" + "\n".join(lines) if lines else t["owner_print_ok"]
@@ -195,8 +196,9 @@ class OwnerApprovals:
             sent = self.send(phone, {"text": t["owner_approved_customer"]})
             files = sorted((ALBUMS_DIR / short(order_id)).glob("print-*.pdf"))
             self.send(self.owner, {"text": t["owner_approved"].format(
-                order=short(order_id),
-                files="\n".join(str(f) for f in files) or t["owner_no_files"])
+                order=_ltr(short(order_id)),
+                files="\n".join(_ltr(f.name) for f in files) or t["owner_no_files"],
+                folder=_ltr(str(ALBUMS_DIR / short(order_id))))
                 + ("" if sent else "\n\n" + t["owner_not_sent"])})
             log.info("✅ Album %s approved by the owner", short(order_id))
         else:
@@ -241,7 +243,7 @@ class OwnerApprovals:
         if token and "approved" not in info["notes"]:
             buttons.append({"id": f"owner_ok:{order_id}:{token}", "title": t["button_owner_ok"]})
         self.send(self.owner, {"text": t["owner_customer_wrote"].format(
-            phone=_last_digits(phone), order=short(order_id), text=text), "buttons": buttons})
+            phone=_last_digits(phone), order=_ltr(short(order_id)), text=text), "buttons": buttons})
 
     def resend_waiting(self):
         """The owner typed "אישורים": send every album still waiting again."""
@@ -253,6 +255,43 @@ class OwnerApprovals:
             token = self.orders.owner_token(phone, order_id)
             if token:
                 self._send_request(phone, order_id, token)
+
+
+# The print tool and the album planner write their notes in English (for the
+# Mac's Terminal). The owner reads them in WhatsApp, in Hebrew (owner's test,
+# task 1.2b: English mixed into a Hebrew line came out scrambled).
+_HEBREW = [
+    (re.compile(r"^(cover|page (\d+)): (.+?) prints at only"), "owner_check_blurry"),
+    (re.compile(r"^(\d+) pages: the printer needs"), "owner_check_page_count"),
+    (re.compile(r"^(\d+) pages: the book must have"), "owner_check_page_count"),
+    (re.compile(r"^The customer's cover photo"), "owner_check_cover_replaced"),
+    (re.compile(r"^The cover photo .* is shown smaller"), "owner_check_cover_small"),
+    (re.compile(r"^Only (\d+) usable photos"), "owner_check_few_photos"),
+]
+
+
+def in_hebrew(item, t):
+    """One line of the print check, in Hebrew. Unknown lines: a short Hebrew
+    pointer to the log (the English text is in bot.log)."""
+    for pattern, key in _HEBREW:
+        found = pattern.search(item)
+        if not found:
+            continue
+        if key == "owner_check_blurry":
+            place = t["preview_cover"] if found.group(1) == "cover" else \
+                t["preview_page"].format(page=found.group(2))
+            digits = re.findall(r"\d+", found.group(3))   # "007.jpg" -> photo 7, as sent
+            photo = str(int(digits[-1])) if digits else _ltr(found.group(3))
+            return t[key].format(place=place, photo=photo)
+        return t[key].format(count=found.group(1) if found.groups() else "")
+    log.info("Print check note: %s", item)
+    return t["owner_check_other"]
+
+
+def _ltr(text):
+    """Keep a code or a file name (Latin letters) in one piece inside a Hebrew
+    line: WhatsApp otherwise mixes up its place in the sentence."""
+    return "\u2066" + str(text) + "\u2069"
 
 
 def _last_digits(phone):
