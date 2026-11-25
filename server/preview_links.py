@@ -101,10 +101,17 @@ def page_html(code, data, t):
     """The album page the customer sees: the facts about the album in a box,
     a short note, all the preview images one under the other (each page's label,
     "עמוד 5", is drawn in the image itself, album/preview.py), and at the bottom
-    what to do next. Hebrew only, aligned right (owner's feedback, Nov 24, 2026)."""
+    what to do next. Hebrew only, aligned right (owner's feedback, Nov 24, 2026).
+
+    All the pictures load at once (an album is only ~3-5 MB), and a picture
+    that fails to arrive is asked for again, up to 4 times. Owner's test
+    (Nov 24, 2026): on an iPhone some pages showed "?" (on the Mac they all
+    showed): a picture that hiccups on the way through mobile internet and
+    Cloudflare was never asked for again, especially with "load when scrolled
+    near" (lazy loading)."""
     images = "\n".join(
         f'<figure><img src="/album/{code}/{html.escape(image["name"])}" alt="" '
-        f'loading="lazy" draggable="false"></figure>'
+        f'draggable="false" onerror="tryAgain(this)"></figure>'
         for image in data["images"])
     facts = [t["preview_info_pages"].format(pages=data["pages"])]
     if data.get("photos"):
@@ -148,6 +155,17 @@ _PAGE = """<!DOCTYPE html>
  .end {{ max-width:600px; margin:10px auto 0; padding-top:18px; border-top:1px solid #ccc; }}
  .end p {{ font-size:18px; }}
 </style></head>
+<script>
+ // A picture that didn't arrive: ask again after 1, 2, 3, 4 seconds.
+ function tryAgain(img) {{
+   var tries = Number(img.dataset.tries || 0);
+   if (tries >= 4) return;
+   img.dataset.tries = tries + 1;
+   setTimeout(function () {{
+     img.src = img.src.split("?")[0] + "?try=" + (tries + 1);
+   }}, 1000 * (tries + 1));
+ }}
+</script>
 <body oncontextmenu="return false">
 <div class="text">
 <h1>📖 {title}</h1>

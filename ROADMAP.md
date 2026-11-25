@@ -128,7 +128,24 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 A payment company, automatic changes, order tracking, more languages (each with its own campaign), a Lupa option, and a cloud server at around 30–50 albums a month.
 
-**Future add-on: more products from the same photos.** Once a customer has sent their photos, offer a calendar, a framed print, magnets or photo tiles made from them, with almost no extra work (bigger orders, more repeat orders). Details in README.md, "Open questions".
+**Future add-on: more products** (researched Nov 24, 2026, in the business model talk; not planned yet). The rule: the best next products reuse **the same customers and the same photos**, not just the process, because our hard-to-copy asset is the audience and the brand. Each was scored on real pain, same customers, reuse of what's built (bot, photo checks, layout engine), same supplier, and repeat sales.
+1. **Family photo calendar: do first.** Same photos, bot, layout engine and printer (12 pages instead of 24). Strong season before Rosh Hashana (Israeli calendar makers work overtime then; family and baby photos are the favourite) and in January. Sold every year to past album customers, so almost no ad cost. Calendars are ~18% of photo product orders in one industry dataset.
+2. **Kindergarten / class end-of-year album: biggest growth bet.** Real pain: today one volunteer parent collects photos from the class WhatsApp group and designs the album. The bot can collect photos from every parent and build it automatically. One order = ~25–35 copies (good printer prices), and 30 families meet the brand at once. Watch: season May–June, existing competitors (Lupa, studios, Albume), and privacy (other people's children: every parent must agree).
+3. **Wall prints, magnets, photo tiles:** easy add-ons from the same photos (for example the cover photo for the wall).
+4. **Event album from guests' photos** (bar/bat mitzvah, wedding, brit): real pain (photos scattered among guests), WhatsApp fits Israeli guests. Later.
+5. **Memorial book:** real pain (choosing photos while grieving is hard), family sends photos and texts on WhatsApp. Only with a gentle, human tone; don't compete with free volunteer projects for bereaved families (e.g. "Album Or").
+6. **Grandma's recipe book:** family sends recipes, handwritten pages and voice notes; AI types them up. Small, lovely niche.
+
+Rejected: child-as-hero storybooks (crowded, different tech), family trip T-shirts (different supplier and business, size returns), name stickers (cheap and crowded), plain photo prints on WhatsApp (many Israeli labs already do it, which shows WhatsApp alone is not an advantage).
+Order: albums first and pass the go/stop decision; then the calendar before the next Rosh Hashana; then the kindergarten album as the first big expansion.
+
+**Wider ideas outside printing** (Nov 25, 2026; ideas only, the Israeli market not checked yet). The same recipe works wherever (1) ordering is hard or scary for the customer, (2) the raw input is already on their phone (photos, video, documents, voice notes), (3) a supplier is good at the work but doesn't want to sell or handle customers, and (4) automation can turn the messy input into a ready job that a person checks. Proof it works: virtual restaurant brands (MrBeast Burger: the brand did menu, ads and app, ~300 existing kitchens cooked at launch; quality varied by kitchen), AI moving quotes from a video of the rooms (Yembo, used by big US movers), Israeli tax refund firms (documents on WhatsApp, ~17–23% + VAT of the refund, only on success). Warning: SmileDirectClub (mail-order tooth aligners) shut down in 2023 after losses, ~$900M debt and lawsuits; in regulated fields the middle player takes the blame.
+- **Home repairs for older people** (best fit): a photo or video of the problem on WhatsApp → a fixed price and a handyman. Same audience, real fear of being cheated. Risk: the work can only be checked after it's done.
+- **Moving quotes:** film the flat on WhatsApp → one clear price from movers with empty days. Risk: big jobs, damage claims.
+- **Custom furniture and closets:** photo + measurements → a ready spec for a carpentry workshop. Risk: measuring mistakes.
+- **Certified document translation:** photo of a document → AI draft → a certified translator approves. Must be exact.
+- **Getting your rights (מיצוי זכויות) for the elderly:** documents on WhatsApp → an expert handles it. Sensitive, regulated, existing players.
+Lesson: products you can check before they're made (like albums) are safer than services. What carries over is the skill of winning and serving older customers on WhatsApp, not the code. Albums first.
 
 Ideas from the owner's first album test (Nov 22, 2026), not planned yet:
 - **Captions:** short headlines or notes next to some photos (for example, the customer types a caption after a photo they choose).
