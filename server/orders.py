@@ -45,6 +45,16 @@ FILE_TYPES = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
 # the photo count with the "done" button (below the photos), or, if "done" was
 # already typed, goes on. Many HD photos take a while to upload, with pauses.
 QUIET_SECONDS = 60
+# Before deciding whether to ask about HD (task 1.2b), wait up to this long for
+# the photos still being saved, so their sizes are known.
+HD_WAIT_SECONDS = 20
+# Ask to resend in HD when at least this part of the photos came without it
+# (the same rule as album_job.WITHOUT_HD_SHARE), judged on at least this many.
+WITHOUT_HD_SHARE = 0.5
+HD_MIN_KNOWN = 3
+# WhatsApp without HD sends photos exactly this long on the long side
+# (album/quality.py WITHOUT_HD_PIXELS, measured Nov 2026).
+WITHOUT_HD_PIXELS = 2048
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
@@ -70,6 +80,7 @@ class Orders:
         self.send = None         # send(phone, message), set by bot.py
         self._last_photo = {}    # phone -> when their last photo arrived (time.monotonic)
         self._settling = set()   # phones waiting for their photos to stop arriving
+        self._sizes = {}   # order_id -> {photo number: long side in pixels}
         self.on_approval = None        # on_approval(phone, order_id): ask the owner (task 3.1)
         self.on_customer_text = None   # on_customer_text(phone, order_id, text): tell the owner
 
@@ -116,6 +127,7 @@ class Orders:
             # first, so the new photo 1, 2, 3… don't clash with them.
             try:
                 count = self.db.delete_order_photos(state["order_id"])
+                self._sizes.pop(state["order_id"], None)
                 log.info("Deleted %s photos of order %s (resending in HD)",
                          count, short(state["order_id"]))
             except DatabaseError as error:
@@ -174,12 +186,17 @@ class Orders:
                 time.sleep(min(left + 0.05, QUIET_SECONDS))
             with self._guard:
                 self._settling.discard(phone)
+            state = self._states.get(phone)
+            if state and state["step"] == "photos":
+                # Let the last photos finish saving, so we know how many came without HD.
+                self.wait_for_photos(state["order_id"], HD_WAIT_SECONDS)
             with self.lock_for(phone):
                 state = self._states.get(phone)
                 if not state:
                     return
                 old_step = state["step"]
-                replies = conversation.photos_settled(state, texts)
+                replies = conversation.photos_settled(
+                    state, texts, without_hd=self.mostly_without_hd(state["order_id"]))
                 if not replies:
                     return
                 try:
@@ -259,6 +276,23 @@ class Orders:
             return number not in self._saving.get(order_id, [])
         with self._saved:
             return self._saved.wait_for(saved, timeout)
+
+    def photo_size(self, order_id, number, long_side):
+        """A photo was saved: remember its size (long side in pixels), to tell
+        whether the customer sent without HD (task 1.2b). Nothing else is kept."""
+        with self._saved:
+            self._sizes.setdefault(order_id, {})[number] = long_side
+
+    def mostly_without_hd(self, order_id):
+        """True if most of the order's saved photos came without HD (exactly
+        2048 px). False if not, or if too few sizes are known yet (then the album
+        check asks later, album_job.py)."""
+        with self._saved:
+            sizes = [s for s in self._sizes.get(order_id, {}).values() if s]
+        if len(sizes) < HD_MIN_KNOWN:
+            return False
+        without = sum(s == WITHOUT_HD_PIXELS for s in sizes)
+        return without >= WITHOUT_HD_SHARE * len(sizes)
 
     def notes_of(self, phone, order_id):
         """The order's notes, or None if the customer has moved on to another order."""
@@ -399,6 +433,7 @@ class Orders:
         return order_id
 
     def _cancel(self, order_id):
+        self._sizes.pop(order_id, None)
         try:
             self.db.update_order(order_id, {"status": "cancelled"})
         except DatabaseError as error:
@@ -436,12 +471,13 @@ def _fields(state):
     }
 
 
-def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5):
+def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_size=None):
     """Download one photo from WhatsApp and save it in Supabase.
 
     media is {"id": ..., "mime_type": ...} from the WhatsApp message.
     Tries a few times if the internet hiccups. Returns True if saved.
     We never log anything about the photo except its number.
+    on_size(long_side) is called once it's saved (None if the size can't be read).
     """
     name = f"photo {number} of order {short(order_id)}"
     mime_type = (media.get("mime_type") or "image/jpeg").split(";")[0].strip().lower()
@@ -471,6 +507,8 @@ def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5):
             db.upload(path, data, mime_type)
             db.update_photo_size(row["id"], len(data))
             log.info("Saved %s", name)
+            if on_size:
+                on_size(image_long_side(data))
             return True
         except (WhatsAppError, DatabaseError, KeyError, ValueError) as error:
             log.warning("Try %s/%s to save %s failed: %s", attempt, attempts, name, error)
@@ -483,3 +521,37 @@ def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5):
     except DatabaseError:
         pass
     return False
+
+
+def image_long_side(data):
+    """The long side of a JPEG or PNG photo in pixels, read from its header
+    (built-in Python only, no Pillow). None for other kinds (HEIC, WebP) or
+    if it can't be read. WhatsApp sends JPEG, with or without HD."""
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            return max(width, height) or None
+        if data[:2] != b"\xff\xd8":
+            return None
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                return None
+            marker = data[i + 1]
+            if marker == 0xFF:   # padding
+                i += 1
+                continue
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            length = int.from_bytes(data[i + 2:i + 4], "big")
+            # SOF markers (frame header) hold the size; C4, C8, CC are not frames.
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height = int.from_bytes(data[i + 5:i + 7], "big")
+                width = int.from_bytes(data[i + 7:i + 9], "big")
+                return max(width, height) or None
+            i += 2 + length
+    except (IndexError, TypeError):
+        pass
+    return None

@@ -33,10 +33,11 @@ _CODE = re.compile(r"^[A-Za-z0-9_-]{32}$")
 
 
 def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS,
-           photos=None, design=None):
+           photos=None, design=None, full_pages=None, photos_on_pages=None, left_out=None):
     """A new link code for this album. Older links to the same album stop working.
     previews is the list from build_album.py: [{"file": path, "pages": [2, 3]}, …].
-    photos and design are shown at the top of the page (how many photos, which design)."""
+    photos, design, full_pages (pages with one edge-to-edge photo), photos_on_pages
+    and left_out ({"blurry": 2, ...}) are shown at the top of the page."""
     links_dir.mkdir(parents=True, exist_ok=True)
     folder = str(folder)
     for old in links_dir.glob("*.json"):
@@ -51,6 +52,9 @@ def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS,
         "pages": pages,
         "photos": photos,
         "design": design,
+        "full_pages": full_pages,
+        "photos_on_pages": photos_on_pages,
+        "left_out": left_out,
         "images": [{"name": Path(p["file"]).name, "pages": p["pages"]} for p in previews],
         "expires": time.time() + days * 24 * 3600,
     }
@@ -116,6 +120,14 @@ def page_html(code, data, t):
     facts = [t["preview_info_pages"].format(pages=data["pages"])]
     if data.get("photos"):
         facts.append(t["preview_info_photos"].format(photos=data["photos"]))
+    if data.get("photos_on_pages") and data["pages"]:
+        average = round(data["photos_on_pages"] / data["pages"], 1)
+        facts.append(t["preview_info_per_page"].format(average=f"{average:g}"))
+    if data.get("full_pages"):
+        facts.append(t["preview_info_full_pages"].format(count=data["full_pages"]))
+    left = _left_out(data.get("left_out"), t)
+    if left:
+        facts.append(left)
     if data.get("design") and "design_" + data["design"] in t:
         facts.append(t["preview_info_design"].format(design=t["design_" + data["design"]]))
     info = "".join(f"<div>{html.escape(fact)}</div>" for fact in facts)
@@ -123,6 +135,21 @@ def page_html(code, data, t):
                         info=f'<div class="info">{info}</div>',
                         note=_lines(t["preview_page_note"]), images=images,
                         end=f'<div class="end">{_lines(t["preview_page_end"])}</div>')
+
+
+def _left_out(left_out, t):
+    """"🔍 לא נכנסו לאלבום: 2 תמונות מטושטשות, תמונה כפולה אחת", or None."""
+    parts = []
+    for reason in ("blurry", "duplicate", "unusable"):
+        count = (left_out or {}).get(reason, 0)
+        if count:
+            one, many = t["left_out_" + reason]
+            parts.append(one if count == 1 else many.format(count=count))
+    if not parts:
+        return None
+    total = sum((left_out or {}).values())
+    verb = t["left_out_verb_one"] if total == 1 else t["left_out_verb_many"]
+    return t["preview_info_left_out"].format(list=", ".join(parts), verb=verb)
 
 
 def expired_html(t):

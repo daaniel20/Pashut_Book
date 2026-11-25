@@ -149,7 +149,8 @@ def send(to, message):
 
 def save_photo_safely(order_id, number, media):
     try:
-        save_photo(db, whatsapp, order_id, number, media)
+        save_photo(db, whatsapp, order_id, number, media,
+                   on_size=lambda side: orders.photo_size(order_id, number, side))
     except Exception:
         log.exception("Something went wrong while saving a photo")
     finally:
@@ -328,7 +329,10 @@ def main():
     def make_link(result):
         code = preview_links.create(result["folder"], result["previews"], result["pages"],
                                     photos=result.get("photos_in_album"),
-                                    design=result.get("design"))
+                                    design=result.get("design"),
+                                    full_pages=result.get("full_pages"),
+                                    photos_on_pages=result.get("photos_on_pages"),
+                                    left_out=result.get("left_out"))
         return f"{public_url}/album/{code}"
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start

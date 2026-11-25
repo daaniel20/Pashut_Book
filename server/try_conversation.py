@@ -10,6 +10,7 @@ Type like a customer. Special commands:
   /video      send a video
   /wait       a minute passes with no new photo (the bot then sends the photo
               count with the "done" button, as it does after real photos stop)
+  /wait nohd  the same, but the photos came without HD (the count asks to resend)
   /quit       stop
 Nothing is sent to WhatsApp and nothing is saved.
 """
@@ -65,8 +66,8 @@ while True:
             if number:
                 print(f"   (checking the cover photo: {cover})")
                 show(conversation.cover_checked(state, number, COVER_RESULTS[cover], texts))
-    elif typed == "/wait":
-        show(conversation.photos_settled(state, texts))
+    elif typed.startswith("/wait"):
+        show(conversation.photos_settled(state, texts, without_hd=typed.endswith("nohd")))
     elif typed == "/video":
         show(conversation.answer(state, "other", "video", texts))
     elif typed.isdigit() and 1 <= int(typed) <= len(buttons):

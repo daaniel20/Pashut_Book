@@ -433,3 +433,64 @@ class AlbumReadyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhotoSizeTest(unittest.TestCase):
+    """Task 1.2b: the bot reads each saved photo's size to ask about HD early."""
+
+    def test_reads_jpeg_and_png_sizes(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("needs Pillow")
+        import io
+        for kind in ("JPEG", "PNG"):
+            data = io.BytesIO()
+            Image.new("RGB", (1536, 2048)).save(data, kind)
+            self.assertEqual(orders.image_long_side(data.getvalue()), 2048)
+
+    def test_unknown_is_none(self):
+        self.assertIsNone(orders.image_long_side(b"photo bytes"))
+        self.assertIsNone(orders.image_long_side(b""))
+        self.assertIsNone(orders.image_long_side(b"\xff\xd8\xff"))
+
+    def test_mostly_without_hd(self):
+        o = orders.Orders(FakeDatabase())
+        self.assertFalse(o.mostly_without_hd("order"))          # nothing known yet
+        for n in range(1, 3):
+            o.photo_size("order", n, 2048)
+        self.assertFalse(o.mostly_without_hd("order"))          # too few to judge
+        o.photo_size("order", 3, 4032)
+        self.assertTrue(o.mostly_without_hd("order"))           # 2 of 3
+        o.photo_size("order", 4, 4032)
+        o.photo_size("order", 5, None)                          # unreadable: not counted
+        self.assertTrue(o.mostly_without_hd("order"))           # 2 of 4 = half
+        o.photo_size("order", 6, 5120)
+        self.assertFalse(o.mostly_without_hd("order"))
+
+    def test_count_asks_about_hd_once_photos_stop(self):
+        orders.QUIET_SECONDS = 0.2
+        try:
+            db, sent = FakeDatabase(), []
+            o = orders.Orders(db, on_cover=lambda *a: None)
+            o.send = lambda phone, message: sent.append(message)
+            o.answer(PHONE, "text", "שלום", TEXTS)
+            o.answer(PHONE, "button", "design_classic", TEXTS)
+            o.answer(PHONE, "photo", photo(1), TEXTS)    # the cover
+            order_id = db.orders[0]["id"]
+            o.photo_done(order_id, 1)
+            o.cover_checked(PHONE, order_id, 1, GOOD_COVER, TEXTS)
+            for n in range(2, 6):
+                o.answer(PHONE, "photo", photo(n), TEXTS)
+            for n in range(1, 6):   # like bot.py: each photo saved, its size known
+                o.photo_size(order_id, n, 2048)
+                o.photo_done(order_id, n)
+            for _ in range(100):
+                if sent:
+                    break
+                time.sleep(0.02)
+            self.assertIn("HD", sent[-1]["text"])
+            self.assertIn("קיבלנו 5 תמונות", sent[-1]["text"])
+            self.assertEqual(db.orders[0]["step"], "hd_question")
+        finally:
+            orders.QUIET_SECONDS = 0
