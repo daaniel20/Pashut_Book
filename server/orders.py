@@ -30,7 +30,8 @@ The address, the price and the time of payment are saved in the order's own
 columns (shipping_address, price, paid_at; supabase/3.2-address-and-payment.sql),
 and its status becomes "approved", then "paid".
 To check a photo number the customer types, album_numbers(order_id) (set by
-bot.py) gives the numbers of the photos inside the album.
+bot.py) gives the numbers of the photos inside the album. A question after
+"עזרה" goes to on_help(phone, order_id, text).
 
 The conversation itself (what to answer) is still in conversation.py.
 """
@@ -94,6 +95,7 @@ class Orders:
         self.on_approval = None        # on_approval(phone, order_id): ask the owner (task 3.1)
         self.on_customer_text = None   # on_customer_text(phone, order_id, text): tell the owner
         self.on_payment = None   # on_payment(phone, order_id): ask the owner to collect (3.2)
+        self.on_help = None      # on_help(phone, order_id, text): a "עזרה" question (3.2)
         # album_numbers(order_id) -> the numbers of the photos inside the album, or None
         self.album_numbers = None
 
@@ -179,6 +181,9 @@ class Orders:
             else:
                 log.warning("Order %s is waiting for payment, but no owner is set up",
                             short(state["order_id"]))
+        question = state.pop("help_for_owner", None)   # "עזרה" (task 3.2)
+        if question and self.on_help:
+            self.on_help(phone, state["order_id"], question)
         text = state.pop("for_owner", None)
         if text and self.on_customer_text:
             self.on_customer_text(phone, state["order_id"], text)

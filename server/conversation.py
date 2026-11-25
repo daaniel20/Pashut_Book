@@ -78,6 +78,11 @@ The steps, in order:
   paid          -> the owner tapped "payment received": the album goes to print.
   From "address" on, the album can't be changed by the customer any more:
   "change something" asks them to write what they want, for the owner.
+  Help (task 3.2, decided in 1.2b): typing "עזרה" at any step -> "write your
+  question" (note "help_wait") -> their next TEXT goes to the owner
+  (state["help_for_owner"]; photos never do), cut at HELP_MAX_LETTERS. Once a
+  day per customer (note "help_day:<date>"): a second "עזרה" that day only
+  hears "we got your earlier message". Tapping a button instead cancels it.
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -93,6 +98,7 @@ Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 
 import re
 import unicodedata
+from datetime import date
 
 from settings import MEDIA_DIR, prices
 
@@ -121,6 +127,8 @@ FINISHED_STEPS = ("done",) + AFTER_APPROVAL
 # The buttons that change the album (from the "change something" list).
 EDIT_BUTTONS = ("edit_menu", "edit_title", "edit_design", "edit_cover", "add_photos",
                 "edit_photo")
+# Help (task 3.2): the customer's question to the owner is cut at this length.
+HELP_MAX_LETTERS = 500
 # The shortest and longest shipping address we accept (letters).
 MIN_ADDRESS, MAX_ADDRESS = 10, 300
 # Unicode kinds of characters the album can't print: emojis and other symbols
@@ -164,10 +172,40 @@ def answer(state, kind, value, texts):
         # WhatsApp sends this e.g. for the "album" bundle of many photos sent
         # together; the photos themselves arrive one by one. Nothing to answer.
         return []
+    help_answer = _help(state, kind, value, words, t)
+    if help_answer is not None:
+        return help_answer
     restart = _restart(state, kind, value, words, t)
     if restart is not None:
         return restart
     return [with_restart(state, m, t) for m in _answer(state, kind, value, words, t)]
+
+
+def _today():
+    return date.today().isoformat()
+
+
+def _help(state, kind, value, words, t):
+    """ "עזרה": the customer's next typed message goes to the owner, once a day.
+    Returns the messages, or None if this message isn't about help."""
+    waiting = "help_wait" in state["notes"]
+    if kind == "text" and words in _word_list(t, "help_words"):
+        if _note(state, "help_day") == _today():
+            return [_text(t["help_already"])]   # one help message a day
+        if not waiting:
+            state["notes"].append("help_wait")
+        return [_text(t["help_ask"])]
+    if not waiting or kind == "photo":
+        return None   # photos go on as usual (they never go to the owner)
+    state["notes"].remove("help_wait")
+    if kind != "text" or not words or words in _word_list(t, "restart_words"):
+        return None   # a button (or "new album"): help is cancelled, answer as usual
+    question = value.strip()
+    if len(question) > HELP_MAX_LETTERS:
+        question = question[:HELP_MAX_LETTERS] + "…"
+    _set_note(state, "help_day", _today())
+    state["help_for_owner"] = question   # orders.py passes it to the owner
+    return [_text(t["help_sent"])]
 
 
 def _answer(state, kind, value, words, t):

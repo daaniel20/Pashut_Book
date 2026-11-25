@@ -349,6 +349,7 @@ def main():
     orders.on_approval = owner.start
     orders.on_customer_text = owner.customer_text
     orders.on_payment = owner.payment                 # task 3.2
+    orders.on_help = owner.help_request               # "עזרה" (task 3.2)
     orders.album_numbers = album_numbers              # task 3.2
     if not owner.owner:
         log.warning("OWNER_PHONE is not set in .env: albums can't be sent to you for "

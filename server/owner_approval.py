@@ -24,6 +24,10 @@ address and a [💰 התקבל תשלום] button. The owner sends the Bit reque
 from their own Bit app, and taps the button when the money arrives: the
 customer hears the album is going to print. "אישורים" also resends these.
 
+Help (task 3.2): a customer's question after "עזרה" (text only, once a day)
+comes with a [💬 לענות] button; the owner's typed answer goes to the customer
+as is, without buttons. Answering is the owner's choice.
+
 If the customer changes anything, the album is built again, and the old
 request's buttons stop working (each request has its own code in the button);
 a new request comes when the customer loves the new version.
@@ -78,7 +82,8 @@ class OwnerApprovals:
         self.owner = owner_number(owner_phone)
         self.public_url = public_url.rstrip("/")
         self.run_print = run_print or run_print_tool
-        self._writing = None        # (phone, order_id): the owner is typing a message for them
+        # (phone, order_id, help?): the owner is typing a message for this customer
+        self._writing = None
         self._guard = threading.Lock()
 
     # ---------- asking the owner ----------
@@ -197,10 +202,11 @@ class OwnerApprovals:
         if action == "owner_paid":
             self._paid(phone, order_id)
             return
-        if action == "owner_write":
+        if action in ("owner_write", "owner_help"):
+            help_answer = action == "owner_help"
             with self._guard:
-                self._writing = (phone, order_id)
-            self.send(self.owner, {"text": t["owner_write"]})
+                self._writing = (phone, order_id, help_answer)
+            self.send(self.owner, {"text": t["owner_write_help" if help_answer else "owner_write"]})
             return
         decision = "approved" if action == "owner_ok" else "owner_problem"
         result = self.orders.owner_decided(phone, order_id, token, decision)
@@ -218,7 +224,7 @@ class OwnerApprovals:
             log.info("✅ Album %s approved by the owner", short(order_id))
         else:
             with self._guard:
-                self._writing = (phone, order_id)
+                self._writing = (phone, order_id, False)
             self.send(self.owner, {"text": t["owner_write"]})
             log.info("Album %s: the owner found a problem", short(order_id))
 
@@ -244,8 +250,8 @@ class OwnerApprovals:
         info = self.orders.info(phone, order_id) or {}
         _, _, total = conversation.payment_amounts()
         self.send(self.owner, {"text": t["owner_payment"].format(
-            order=short(order_id), total=info.get("price") or total,
-            phone=local_number(phone), address=info.get("address") or "?"),
+            order=_ltr(short(order_id)), total=info.get("price") or total,
+            phone=_ltr(local_number(phone)), address=info.get("address") or "?"),
             "buttons": [{"id": f"owner_paid:{order_id}", "title": t["button_owner_paid"]}]})
         log.info("Order %s: asked the owner to collect the payment", short(order_id))
 
@@ -259,19 +265,22 @@ class OwnerApprovals:
             self.send(self.owner, {"text": t["owner_old"]})
             return
         sent = self.send(phone, {"text": t["paid_customer"]})
-        self.send(self.owner, {"text": t["owner_paid"].format(order=short(order_id))
+        self.send(self.owner, {"text": t["owner_paid"].format(
+            order=_ltr(short(order_id)), folder=_ltr(str(ALBUMS_DIR / short(order_id))))
                                + ("" if sent else "\n\n" + t["owner_not_sent"])})
         log.info("💰 Order %s paid", short(order_id))
 
     def _pass_on(self, writing, text):
         """The owner's typed message goes to the customer, as is."""
         t = self.texts
-        phone, order_id = writing
+        phone, order_id, help_answer = writing
         if _clean(text) in [_clean(w) for w in t["owner_cancel_words"]]:
             self.send(self.owner, {"text": t["owner_cancelled"]})
             return
-        sent = self.send(phone, {"text": t["team_message"].format(text=text.strip()), "buttons": [
-            {"id": "edit_menu", "title": t["button_edit"]}]})
+        message = {"text": t["team_message"].format(text=text.strip())}
+        if not help_answer:
+            message["buttons"] = [{"id": "edit_menu", "title": t["button_edit"]}]
+        sent = self.send(phone, message)
         reply = t["owner_passed_on"] if sent else t["owner_not_sent"]
         self.send(self.owner, {"text": reply.format(phone=_last_digits(phone))})
         log.info("Album %s: passed the owner's message to the customer", short(order_id))
@@ -302,6 +311,30 @@ class OwnerApprovals:
             buttons.append({"id": f"owner_paid:{order_id}", "title": t["button_owner_paid"]})
         self.send(self.owner, {"text": t["owner_customer_wrote"].format(
             phone=_last_digits(phone), order=_ltr(short(order_id)), text=text), "buttons": buttons})
+
+    # ---------- help (task 3.2) ----------
+
+    def help_request(self, phone, order_id, text):
+        """A customer's question after "עזרה": to the owner, with [💬 לענות].
+        (Called while the customer's order is locked, so it runs in the background.)"""
+        if not self.owner:
+            log.warning("A customer asked for help, but OWNER_PHONE is not set in .env")
+            return
+        threading.Thread(target=self._safe_help, args=(phone, order_id, text),
+                         daemon=True).start()
+
+    def _safe_help(self, phone, order_id, text):
+        try:
+            self.send_help(phone, order_id, text)
+        except Exception:
+            log.exception("Could not pass a help request to the owner")
+
+    def send_help(self, phone, order_id, text):
+        t = self.texts
+        self.send(self.owner, {"text": t["owner_help"].format(
+            phone=_last_digits(phone), order=_ltr(short(order_id)), text=text),
+            "buttons": [{"id": f"owner_help:{order_id}", "title": t["button_owner_write"]}]})
+        log.info("Order %s: the customer asked for help", short(order_id))
 
     def resend_waiting(self):
         """The owner typed "אישורים": send every album still waiting for approval

@@ -1082,6 +1082,56 @@ class AddressPaymentTest(unittest.TestCase):
         self.assertIn("נשמר", replies[0]["text"])
 
 
+class HelpTest(unittest.TestCase):
+    """Task 3.2 (decided in 1.2b): "עזרה" sends one typed question a day to the owner."""
+
+    def setUp(self):
+        self.state = conversation.new_state()
+        talk(self.state, "text", "שלום")
+        talk(self.state, "button", "design_classic")
+        self._today = conversation._today
+        conversation._today = lambda: "2026-11-25"
+
+    def tearDown(self):
+        conversation._today = self._today
+
+    def test_help_passes_the_next_message_to_the_owner(self):
+        replies = talk(self.state, "text", "עזרה")
+        self.assertIn("כתבו כאן את השאלה", replies[0]["text"])
+        talk(self.state, "photo")                       # a photo is never passed on
+        self.assertNotIn("help_for_owner", self.state)
+        replies = talk(self.state, "text", "איך שולחים כמה תמונות ביחד?")
+        self.assertEqual(self.state.pop("help_for_owner"), "איך שולחים כמה תמונות ביחד?")
+        self.assertIn("קיבלנו", replies[0]["text"])
+        self.assertEqual(self.state["step"], "photos")   # nothing else changed
+
+    def test_once_a_day(self):
+        talk(self.state, "text", "עזרה")
+        talk(self.state, "text", "שאלה")
+        self.state.pop("help_for_owner")
+        replies = talk(self.state, "text", "עזרה")
+        self.assertIn("ההודעה הקודמת", replies[0]["text"])
+        talk(self.state, "text", "עוד שאלה")
+        self.assertNotIn("help_for_owner", self.state)
+        conversation._today = lambda: "2026-11-26"      # the next day: allowed again
+        talk(self.state, "text", "עזרה")
+        talk(self.state, "text", "שאלה חדשה")
+        self.assertEqual(self.state.pop("help_for_owner"), "שאלה חדשה")
+
+    def test_long_questions_are_cut(self):
+        talk(self.state, "text", "עזרה")
+        talk(self.state, "text", "א" * 900)
+        question = self.state.pop("help_for_owner")
+        self.assertEqual(len(question), conversation.HELP_MAX_LETTERS + 1)
+
+    def test_a_button_cancels_it(self):
+        talk(self.state, "text", "עזרה")
+        talk(self.state, "button", "no_change")
+        talk(self.state, "text", "בלי כותרת")
+        self.assertNotIn("help_for_owner", self.state)
+        self.assertNotIn("help_wait", self.state["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

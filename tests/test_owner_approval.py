@@ -186,6 +186,19 @@ class OwnerApprovalTest(unittest.TestCase):
         self.assertEqual(self.db.orders[0]["step"], "photo_action")
         self.assertIn("photo_pick:7", self.db.orders[0]["notes"])
 
+    def test_help_question_and_answer(self):
+        self.orders.on_help = self.approvals.send_help
+        self.customer("text", "עזרה")
+        self.customer("text", "מתי האלבום יגיע?")
+        request = self.to(OWNER)[-1]
+        self.assertIn("מתי האלבום יגיע?", request["text"])
+        self.assertEqual(request["buttons"][0]["id"], f"owner_help:{ORDER}")
+        self.owner("button", request["buttons"][0]["id"])
+        self.assertTrue(self.owner("text", "בעוד שבוע 🙂"))
+        answer = self.to(CUSTOMER)[-1]
+        self.assertIn("בעוד שבוע", answer["text"])
+        self.assertNotIn("buttons", answer)          # a help answer has no buttons
+
     def test_local_number(self):
         self.assertEqual(owner_approval.local_number("972501234567"), "050-123-4567")
         self.assertEqual(owner_approval.local_number("447700900123"), "+447700900123")
