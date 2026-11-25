@@ -119,10 +119,11 @@ The printer and the test album are in the sales track (S.2, S.4).
 
 | # | Task | Who | Done when… |
 |---|---|---|---|
-| 3.1 | **Owner approval** on your WhatsApp ("Approve / Problem"). Guide: [docs/setup/3.1-owner-approval.md](docs/setup/3.1-owner-approval.md) | 🤝 | Your approval moves the order forward. 🔧 Built Nov 24, 2026: after the customer's "😍 אהבתי!", the bot makes the print files and sends you the album link with [✅ לאשר] [⚠️ יש בעיה]; "approve" tells the customer it's ready for printing; "problem" lets you type a message that goes to the customer; the customer's replies come to you. Decided: you approve **before** payment. Not yet tested on the phone |
-| 3.2 | **Payment** (Bit request by hand), **limited changes** (made by hand), **shipping address** | 🤝 | A full order runs from start to finish |
-| 3.3 | **Photo cleanup:** delete photos automatically after delivery | 🤝 | Old test photos disappear by themselves |
-| 3.4 | **First customers served through the bot** | 🙋 | At least one sales-track album went through the bot |
+| 3.1 | **Owner approval** on your WhatsApp ("Approve / Problem"). Guide: [docs/setup/3.1-owner-approval.md](docs/setup/3.1-owner-approval.md) | 🤝 | Your approval moves the order forward. 🔧 Built Nov 24, 2026: after the customer's "😍 אהבתי!", the bot makes the print files and sends you the album link with [✅ לאשר] [⚠️ יש בעיה]; "approve" tells the customer it's ready for printing; "problem" lets you type a message that goes to the customer; the customer's replies come to you. Decided: you approve **before** payment. ✅ Tested Nov 25, 2026: the owner (own phone) and a customer (wife's phone) went through love it → request → problem message → customer got it. Changed after the test: the owner's report lists only real problems (under 150 DPI) and notes; photos at 150–199 DPI (e.g. every photo sent without HD, 195) are one summary line, not a list |
+| 3.2 | **Payment** (Bit request by hand), **limited changes**, **shipping address**. Changes (owner's decision, Nov 25, 2026): (1) **a small number on every photo in the preview** (the photo's own number, the order it was sent in: never changes when the album is rebuilt, gaps where photos were left out; preview only, **never printed**), so the customer and their family can talk about "photo 15"; (2) **"📷 להחליף או להסיר תמונה"** in the "✏️ לשנות משהו" list: which number? → send a new photo (it goes into the same spot) or remove it → the album is built again. The owner's "problem" message can then point to a number | 🤝 | A full order runs from start to finish, and a customer can replace or remove one photo by its number |
+| 3.3 | **Order history** (owner's goal, Nov 25, 2026: record as much data as possible, CLAUDE.md rule 10): a Supabase table with one row per moment of every order and its time: order started, photos received (count, with/without HD), HD question, album built (pages, photos used, left out and why), preview sent, each change, "love it", the owner's request (the report's numbers) and answer, and later paid, printed, delivered. Numbers only: no photos, no message texts. Download any table as CSV from Supabase; the tracking sheet (S.6) keeps what only the owner knows (minutes, price, where the customer came from) | 🤝 | Every step of a test order appears in the table with its time, and downloads as a CSV |
+| 3.4 | **Photo cleanup:** delete photos automatically after delivery | 🤝 | Old test photos disappear by themselves |
+| 3.5 | **First customers served through the bot** | 🙋 | At least one sales-track album went through the bot |
 
 ### Stage 4: Polish and grow (🔒 only after the go/stop decision passes)
 
@@ -180,5 +181,5 @@ If not: change **one** thing (price, offer, or audience) and rerun the test once
 - **0.1 Meta account** → all of Stage 1
 - **S.2 Printer chosen** → S.3 templates (page size) → 2.2 layout → 2.3 print PDF
 - **S.4 Test album** → whether full-page photos are allowed
-- **0.4 Business number** → 3.4 customers through the bot (the test number reaches only 5 numbers)
+- **0.4 Business number** → 3.5 customers through the bot (the test number reaches only 5 numbers)
 - **Go / stop decision** → Stage 4
