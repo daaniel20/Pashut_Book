@@ -136,14 +136,18 @@ class OwnerApprovals:
         if "error" in report:
             return t["owner_print_failed"].format(error=report["error"])
         lines = []
-        for kind, items in (("❌", report.get("problems", [])), ("⚠️", report.get("warnings", [])),
-                            ("📝", report.get("notes", []))):
+        # Only what really needs a look: photos that would print blurry (❌, under
+        # 150 DPI) and the album's own notes (📝). Photos at 150-199 DPI, e.g. every
+        # photo sent without HD (195), print fine: one summary line, not a list.
+        for kind, items in (("❌", report.get("problems", [])), ("📝", report.get("notes", []))):
             lines += [f"{kind} {item}" for item in items[:MAX_LINES]]
             if len(items) > MAX_LINES:
                 lines.append(t["owner_more"].format(count=len(items) - MAX_LINES))
-        if not lines:
-            return t["owner_print_ok"]
-        return t["owner_print_check"] + "\n" + "\n".join(lines)
+        text = t["owner_print_check"] + "\n" + "\n".join(lines) if lines else t["owner_print_ok"]
+        soft = len(report.get("warnings", []))
+        if soft:
+            text += "\n" + t["owner_print_soft"].format(count=soft)
+        return text
 
     # ---------- the owner's messages ----------
 

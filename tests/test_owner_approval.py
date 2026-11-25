@@ -105,7 +105,15 @@ class OwnerApprovalTest(unittest.TestCase):
         self.assertEqual(request["link"]["url"], "https://x/album/CODE")
         self.assertIn("22", request["text"])
         self.assertIn("❌ page 3", request["text"])
-        self.assertIn("…ועוד 2", request["text"])   # at most 5 warnings listed
+        # Photos at 150-199 DPI (e.g. without HD) print fine: one line, not a list.
+        self.assertNotIn("soft", request["text"])
+        self.assertIn("ℹ️ 7", request["text"])
+
+    def test_many_problems_are_cut_short(self):
+        self.report = {"problems": [f"page {n}: blurry" for n in range(8)],
+                       "warnings": [], "notes": []}
+        self.love_it()
+        self.assertIn("…ועוד 3", self.to(OWNER)[0]["text"])   # at most 5 listed
 
     def test_approve(self):
         buttons = self.love_it()

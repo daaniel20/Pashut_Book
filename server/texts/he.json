@@ -94,6 +94,7 @@
   "owner_request": "🔧 אלבום חדש לאישור\nהזמנה {order} · לקוח …{phone}\n📄 {pages} עמודים · 📸 {photos} תמונות · 🎨 {design}\n🏷️ כותרת: {title}",
   "owner_print_ok": "🖨️ קבצי ההדפסה מוכנים, בלי בעיות.",
   "owner_print_check": "🖨️ קבצי ההדפסה מוכנים. כדאי לבדוק:",
+  "owner_print_soft": "ℹ️ {count} מקומות שבהם התמונה מודפסת ב-150 עד 200 DPI (כמו תמונה בלי HD): תקין להדפסה, רק לא בחדות המלאה.",
   "owner_print_failed": "❌ קבצי ההדפסה לא נוצרו: {error}\nבדקו את היומן (bot.log) לפני שמאשרים.",
   "owner_more": "…ועוד {count}",
   "owner_no_link": "(הקישור לאלבום כבר לא פעיל. אפשר לפתוח את album.html על ה-Mac.)",
