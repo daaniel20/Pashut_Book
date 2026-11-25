@@ -24,18 +24,30 @@ The steps, in order:
   cover    -> asking: do you want a title on the cover?
   title    -> waiting for the customer to type the title
   done     -> everything is collected; the album is "in the works".
-              The summary has two buttons: "all correct" (a short thank-you) and
-              "change something", which opens a list (title, design, cover photo,
-              add photos): that goes back to the "title", "design", "cover_photo"
-              or "photos" step, then straight to a new summary.
-  The cover-title question and the title step also have an "add photos" button,
-  for customers who tapped "done" too early.
-  hd_question -> (task 2.2) most photos came without HD: resend them, or continue?
-                 Set by album_job.py after it checks the photos, not by answer().
+              The summary has NO buttons (task 1.2b, owner's test: "הכל נכון?"
+              looked like a gate, but the album is built at once anyway). It says
+              the link comes soon and changes are made there. After the previews,
+              "change something" opens a list (title, design, cover photo, add
+              photos, "↩️ בלי שינוי"): that goes back to the "title", "design",
+              "cover_photo" or "photos" step, then straight to a new summary.
+              Every change step also has "↩️ בלי שינוי" (button id "no_change";
+              the cover step's "keep_cover" does the same): back to the album's
+              buttons, and the album is NOT built again (state["unchanged"]).
+  The cover-title question also has an "add photos" button, for customers who
+  tapped "done" too early. The title step has only "no title" (task 1.2b).
+  hd_question -> most photos came without HD: resend them, or continue?
+                 Asked as soon as the photos stop arriving (task 1.2b: orders.py
+                 reads each saved photo's size and calls photos_settled() with
+                 without_hd=True), in the same message as the photo count; note
+                 "hd_early". "Continue without HD" then goes back to the photos
+                 step with the "done" button. If the sizes weren't known in time,
+                 album_job.py still asks after the summary (task 2.2).
                  "How do I send HD?" only shows the how-to (with the video clip) and
                  [continue without HD]; nothing is deleted until the first new photo
                  arrives, which replaces the old ones.
-  Starting over: typing "אלבום חדש", or the "🔄 אלבום חדש" button (added to every
+  Videos sent with the photos aren't answered one by one: the photo count
+  message says once that videos don't go into the album (note "video_untold").
+  Starting over: typing "אלבום חדש", or the "🔄 להתחיל מחדש" button (added to every
   message with fewer than 3 buttons once there is something to lose, and to the
   "change something" list). It always asks first [yes, start over] [no, continue],
   because the photos are deleted. A finished album is kept (orders.py).
@@ -172,24 +184,31 @@ def _answer(state, kind, value, words, t):
     if kind == "photo":
         return _on_photo(state, t)
 
+    if _changing(state) and (_tapped(kind, value, words, "no_change", t["button_no_change"])
+                             or _tapped(kind, value, words, "keep_cover", t["button_keep_cover"])):
+        return _no_change(state, t)
+
     if step == "design":
         design = _pick_design(kind, value, words, t)
         if design is None:
-            return [_design_buttons(t, t["choose_design_again"])]
+            return [_design_buttons(t, t["choose_design_again"], editing="editing" in state["notes"])]
         state["design"] = design
         if "editing" in state["notes"]:
             # They came back from the summary to change the design.
             return _finish(state, t)
+        # Two messages (owner's test, task 1.2b: one was too busy): the HD how-to
+        # with the clip first, then the cover request LAST, at the bottom of the
+        # chat where the customer acts (and so the cover photo is sent in HD).
         messages = [_with_hd_video(_text(t["design_chosen"].format(
             design=t["design_" + design], max=MAX_PHOTOS)))]
         if state["photos"]:
             # They sent photos before choosing a design: the first one is the cover.
             set_cover_photo(state, 1)
             state["step"] = "photos"
-            messages[0]["text"] = messages[0]["text"].rsplit("\n\n", 1)[0]
             messages.append(_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"]))))
         else:
             state["step"] = "cover_photo"
+            messages.append(_text(t["start_cover"]))
         return messages
 
     if step == "cover_check":
@@ -210,8 +229,6 @@ def _answer(state, kind, value, words, t):
 
     if step == "cover_photo":
         if "editing" in state["notes"]:
-            if (kind == "button" and value == "keep_cover") or words == _clean(t["button_keep_cover"]):
-                return _finish(state, t)
             return [_keep_cover_button(t, t["ask_new_cover_photo"])]
         return [_text(t["ask_cover_photo"])]
 
@@ -232,6 +249,11 @@ def _answer(state, kind, value, words, t):
             return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
         if kind == "other":
             # Usually sent in the middle of the photos: no "done" button here.
+            if value == "video" and state.get("recent_photo") and "video" not in state["notes"]:
+                # Sent with the photos: the count message will say it (one message
+                # instead of two, with a silence between them; owner's test, task 1.2b).
+                state["notes"] += ["video", "video_untold"]
+                return []
             note = "video" if value == "video" else "not_a_photo"
             text = t["video_not_used"] if value == "video" else t["not_a_photo"]
             return _once(state, note, [_text(text)])
@@ -259,18 +281,30 @@ def _answer(state, kind, value, words, t):
             return _finish(state, t)
         if kind == "text" and words:
             return _save_title(state, value, t)
-        return [_title_request(t)]
+        return [_title_request(t, "editing" in state["notes"])]
 
     if step == "hd_question":
         if (kind == "button" and value == "hd_continue") or \
                 words in (_clean(t["button_hd_continue"]), _clean(t["button_hd_continue_no_hd"])):
+            if "hd_early" in state["notes"]:
+                # Asked with the photo count: back to the photos, with the "done" button.
+                state["notes"].remove("hd_early")
+                state["step"] = "photos"
+                _set_note(state, "counted", state["photos"])
+                return [_done_button(t, t["hd_continue_photos"].format(
+                    photos=_photos(t, state["photos"])))]
             state["step"] = "done"
             return [_text(t["hd_continue"])]
         if (kind == "button" and value == "hd_help") or words == _clean(t["button_hd_help"]):
-            # Only the how-to: nothing is deleted until the first new photo arrives,
+            # A short warning, no clip (they saw it after choosing a design; owner's
+            # test, task 1.2b). Nothing is deleted until the first new photo arrives,
             # so they can still change their mind and continue without HD.
-            return [_hd_how_to(t)]
-        return [hd_question(t)]
+            return [{"text": t["hd_resend_warning"].format(photos=_photos(t, state["photos"])),
+                     "buttons": [{"id": "hd_how", "title": t["button_hd_how"]},
+                                 {"id": "hd_continue", "title": t["button_hd_continue_no_hd"]}]}]
+        if (kind == "button" and value == "hd_how") or words == _clean(t["button_hd_how"]):
+            return [_hd_how_to(t, state)]
+        return [_hd_question_for(state, t)]
 
     if step in ("photo_number", "photo_action", "photo_replace"):
         return _photo_change(state, kind, value, words, t)
@@ -284,22 +318,24 @@ def _answer(state, kind, value, words, t):
             state["notes"].append("team_asked")
             return [_text(t["photo_changes_limit"].format(max=MAX_PHOTO_CHANGES))]
         state["step"] = "photo_number"
-        state["notes"].append("editing")
+        _start_change(state)
         return [_keep_photo_button(t, t["ask_photo_number"])]
     if (kind == "button" and value == "edit_title") or words == _clean(t["button_edit_title"]):
         state["step"] = "title"
-        state["notes"].append("editing")
-        return [_title_request(t)]
+        _start_change(state)
+        return [_title_request(t, editing=True)]
     if (kind == "button" and value == "edit_design") or words == _clean(t["button_edit_design"]):
         state["step"] = "design"
-        state["notes"].append("editing")
-        return [_design_buttons(t, t["choose_design"])]
+        _start_change(state)
+        return [_design_buttons(t, t["choose_design"], editing=True)]
     if (kind == "button" and value == "edit_cover") or words == _clean(t["button_edit_cover"]):
         state["step"] = "cover_photo"
-        state["notes"].append("editing")
+        _start_change(state)
         return [_keep_cover_button(t, t["ask_new_cover_photo"])]
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
         return _back_to_photos(state, t)
+    if _tapped(kind, value, words, "no_change", t["button_no_change"]):
+        return _no_change(state, t)   # from the list: nothing to change after all
     if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
         return [_edit_list(t, t["choose_edit"], state)]
     if _tapped(kind, value, words, "confirm", t["button_confirm"]):
@@ -309,7 +345,7 @@ def _answer(state, kind, value, words, t):
         if "confirmed" in state["notes"]:
             return []
         state["notes"].append("confirmed")
-        return [_text(t["confirmed"])]
+        return [_change_button(t, t["confirmed"])]
     if _tapped(kind, value, words, "preview_ok", t["button_preview_ok"]):
         return _loved(state, t)
     if kind == "text" and words and ("preview_ok" in state["notes"] or "team_asked" in state["notes"]):
@@ -336,8 +372,6 @@ def album_photo_count(state):
 
 def _photo_change(state, kind, value, words, t):
     step = state["step"]
-    if _tapped(kind, value, words, "keep_photo", t["button_keep_photo"]):
-        return _back_to_album(state, t)
     number = _note(state, "photo_pick")
     if step == "photo_number":
         if kind != "text" or not words:
@@ -383,27 +417,16 @@ def _album_numbers(state):
     return set(range(1, state["photos"] + 1)) - gone - {cover_photo(state)}
 
 
-def _back_to_album(state, t):
-    """"Keep as it was": nothing changes, back to the album as it was."""
-    state["step"] = "done"
-    _set_note(state, "photo_pick", None)
-    while "editing" in state["notes"]:
-        state["notes"].remove("editing")
-    if "previews_sent" in state["notes"]:
-        return [after_previews(t)]
-    return [_summary(state, t)]
-
-
 def _photo_action_buttons(t, number):
     return {"text": t["photo_action"].format(number=number), "buttons": [
         {"id": "photo_replace", "title": t["button_photo_replace"]},
         {"id": "photo_remove", "title": t["button_photo_remove"]},
-        {"id": "keep_photo", "title": t["button_keep_photo"]},
+        _no_change_button(t),
     ]}
 
 
 def _keep_photo_button(t, text):
-    return {"text": text, "buttons": [{"id": "keep_photo", "title": t["button_keep_photo"]}]}
+    return {"text": text, "buttons": [_no_change_button(t)]}
 
 
 # ---------- after the owner approved: address and payment (task 3.2) ----------
@@ -492,16 +515,26 @@ def _loved(state, t):
     return [_text(t["preview_ok"])]
 
 
-def photos_settled(state, t):
+def photos_settled(state, t, without_hd=False):
     """No new photo came for a while (called by orders.py). If "done" was already
     typed, go on to the next question; otherwise send the photo count with the
-    "done" button, below the photos. [] if there is nothing new to say."""
-    if "done_waiting" in state["notes"]:
+    "done" button, below the photos. [] if there is nothing new to say.
+    without_hd: most photos came without HD (orders.py read their sizes), so the
+    count message asks to resend them in HD instead (once per order)."""
+    waiting = "done_waiting" in state["notes"]
+    if waiting:
         state["notes"].remove("done_waiting")
+    count = state["photos"]
+    if without_hd and state["step"] == "photos" and "hd_asked" not in state["notes"] \
+            and count and not (count == 1 and cover_photo(state) == 1):
+        state["step"] = "hd_question"
+        state["notes"] += ["hd_asked", "hd_early"]
+        _set_note(state, "counted", count)
+        return [with_restart(state, _with_videos(state, t, _hd_question_for(state, t)), t)]
+    if waiting:
         if state["step"] != "photos":
             return []
-        return [with_restart(state, m, t) for m in _photos_done(state, t)]
-    count = state["photos"]
+        return [with_restart(state, _with_videos(state, t, m), t) for m in _photos_done(state, t)]
     if state["step"] != "photos" or count == 0 or _note(state, "counted") == str(count):
         return []
     if count == 1 and cover_photo(state) == 1:
@@ -516,11 +549,29 @@ def photos_settled(state, t):
             photos=_photos(t, count), few=FEW_PHOTOS))
     else:
         message = _done_button(t, t["photos_count"].format(photos=_photos(t, count)))
-    return [with_restart(state, message, t)]
+    old = _note(state, "resent_from")
+    if old and count < MAX_PHOTOS:
+        # Sent again in HD: say clearly that the old photos are gone (owner's test).
+        first, _, rest = message["text"].partition("\n")
+        message = dict(message, text=t["photos_count_resent"].format(
+            photos=_photos(t, count), old=old) + "\n" + rest)
+    return [with_restart(state, _with_videos(state, t, message), t)]
+
+
+def _with_videos(state, t, message):
+    """Add "videos don't go into the album" under the first line of the message,
+    if videos came with the photos and the customer wasn't told yet."""
+    if "video_untold" not in state["notes"]:
+        return message
+    state["notes"].remove("video_untold")
+    first, _, rest = message["text"].partition("\n")
+    return dict(message, text=first + "\n" + t["videos_skipped"] + ("\n" + rest if rest else ""))
 
 
 def _photos_done(state, t):
     """The customer has finished sending photos."""
+    _set_note(state, "resent_from", None)
+    _set_note(state, "photos_at", None)
     if state["photos"] == 0:
         return [_text(t["no_photos_yet"])]
     if state["photos"] == 1 and cover_photo(state) == 1:
@@ -538,7 +589,7 @@ def _photos_done(state, t):
 
 
 def with_restart(state, message, t):
-    """Add the "🔄 אלבום חדש" button to a message with fewer than 3 buttons,
+    """Add the "🔄 להתחיל מחדש" button to a message with fewer than 3 buttons,
     once the customer has something to lose. Not on the summary or the
     previews (there it's in the "change something" list), the restart
     question itself, or the first design question."""
@@ -606,9 +657,9 @@ def _step_prompt(state, t):
     if step == "cover":
         return [_cover_buttons(t, state)]
     if step == "title":
-        return [_title_request(t)]
+        return [_title_request(t, "editing" in state["notes"])]
     if step == "hd_question":
-        return [hd_question(t)]
+        return [_hd_question_for(state, t)]
     if step == "photo_number":
         return [_keep_photo_button(t, t["ask_photo_number"])]
     if step == "photo_action":
@@ -680,6 +731,13 @@ def after_previews(t):
         {"id": "preview_ok", "title": t["button_preview_ok"]},
         {"id": "edit_menu", "title": t["button_edit"]},
     ]}
+
+
+def _hd_question_for(state, t):
+    if "hd_early" in state["notes"]:
+        return {"text": t["hd_question_early"].format(photos=_photos(t, state["photos"])),
+                "buttons": hd_question(t)["buttons"]}
+    return hd_question(t)
 
 
 def hd_question(t):
@@ -803,7 +861,8 @@ def _after_done(state, t):
     """The customer wrote (or sent a photo) after everything was collected."""
     if "previews_sent" in state["notes"]:
         return _once(state, "after_previews", [after_previews(t)])
-    return _once(state, "after_done", [_change_button(t, t["after_done"])])
+    # Before the link: changes are made after seeing the album (task 1.2b).
+    return _once(state, "after_done", [_text(t["after_done"])])
 
 
 def _tapped(kind, value, words, button_id, button_title):
@@ -820,11 +879,16 @@ def _back_to_photos(state, t):
     _set_note(state, "counted", state["photos"])   # this message already shows the count
     if state["photos"] >= MAX_PHOTOS:
         return [_done_button(t, t["photo_limit"].format(max=MAX_PHOTOS))]
-    return [_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))]
+    message = _done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))
+    if from_summary:
+        _set_note(state, "photos_at", state["photos"])   # "no change" = no new photos
+        message["buttons"].append(_no_change_button(t))
+    return [message]
 
 
 def _resend_photos(state):
     """Start the photos over. orders.py sees "resend_photos" and deletes the old ones."""
+    _set_note(state, "resent_from", state["photos"])   # said in the next count
     state["step"] = "photos"
     state["photos"] = 0
     state["resend_photos"] = True
@@ -832,7 +896,7 @@ def _resend_photos(state):
     _set_note(state, "counted", None)
     _set_note(state, "cover_check", None)
     _set_note(state, "cover_problem", None)
-    for note in ("photo_limit", "not_a_photo", "cover_kept"):
+    for note in ("photo_limit", "not_a_photo", "cover_kept", "hd_early", "video_untold"):
         if note in state["notes"]:
             state["notes"].remove(note)
     for note in photo_changes(state):
@@ -878,6 +942,7 @@ def _finish(state, t):
     for note in ("editing", "confirmed", "late_photos"):
         while note in state["notes"]:
             state["notes"].remove(note)
+    _set_note(state, "photos_at", None)
     return [_summary(state, t)]
 
 
@@ -893,10 +958,8 @@ def _summary(state, t):
         count=album_photo_count(state),
         title=state["title"] or t["no_title"],
     )
-    return {"text": summary, "buttons": [
-        {"id": "confirm", "title": t["button_confirm"]},
-        {"id": "edit_menu", "title": t["button_edit"]},
-    ]}
+    # No buttons (task 1.2b): the album is built now; changes come after the link.
+    return {"text": summary}
 
 
 def _photos(t, count):
@@ -932,10 +995,47 @@ def _text(text):
     return {"text": text}
 
 
-def _design_buttons(t, text):
-    return {"text": text, "buttons": [
-        {"id": "design_" + design, "title": t["design_" + design]} for design in DESIGNS
-    ]}
+def _design_buttons(t, text, editing=False):
+    buttons = [{"id": "design_" + design, "title": t["design_" + design]} for design in DESIGNS]
+    if editing:
+        buttons.append(_no_change_button(t))
+    return {"text": text, "buttons": buttons}
+
+
+def _no_change_button(t):
+    return {"id": "no_change", "title": t["button_no_change"]}
+
+
+def _changing(state):
+    """In the middle of a change chosen from the list (or adding photos to a
+    finished album)?"""
+    return "editing" in state["notes"] or _note(state, "photos_at") is not None
+
+
+def _start_change(state):
+    """A change chosen from the list starts: remember the photo count, so
+    "no change" knows whether a photo was sent meanwhile."""
+    state["notes"].append("editing")
+    _set_note(state, "photos_at", state["photos"])
+
+
+def _no_change(state, t):
+    """ "↩️ בלי שינוי": back to the album's buttons, nothing changes."""
+    at = _note(state, "photos_at")
+    for name in ("cover_check", "cover_problem", "photo_pick"):
+        _set_note(state, name, None)   # a new cover photo being checked: dropped
+    if at is not None and state["photos"] > int(at):
+        # A photo was sent meanwhile: it goes into the album, which is built again.
+        if "editing" not in state["notes"]:
+            return _photos_done(state, t)
+        return _finish(state, t)
+    state["notes"][:] = [n for n in state["notes"]
+                         if n != "editing" and not n.startswith("photos_at:")]
+    state["step"] = "done"
+    if "previews_sent" not in state["notes"]:
+        return _finish(state, t)        # no link yet: the album is (re)built as usual
+    state["unchanged"] = True           # orders.py: don't build the album again
+    return [dict(after_previews(t), text=t["no_change_done"])]
 
 
 def _change_button(t, text):
@@ -950,7 +1050,8 @@ def _edit_list(t, text, state):
             {"id": "edit_design", "title": t["button_edit_design"]},
             {"id": "edit_cover", "title": t["button_edit_cover"]},
             {"id": "add_photos", "title": t["button_add_photos"]},
-            {"id": "restart", "title": t["button_restart_list"]}]
+            {"id": "restart", "title": t["button_restart_list"]},
+            {"id": "no_change", "title": t["button_no_change"]}]
     if "previews_sent" in state["notes"]:
         rows.insert(0, {"id": "edit_photo", "title": t["button_edit_photo"]})
     return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"],
@@ -958,11 +1059,11 @@ def _edit_list(t, text, state):
 
 
 def _keep_cover_button(t, text):
-    return {"text": text, "buttons": [{"id": "keep_cover", "title": t["button_keep_cover"]}]}
+    return {"text": text, "buttons": [_no_change_button(t)]}
 
 
 def _restart_only(t, text):
-    """A message whose only button is "🔄 אלבום חדש" (no "done" button above
+    """A message whose only button is "🔄 להתחיל מחדש" (no "done" button above
     photos that are still to come)."""
     return {"text": text, "buttons": [{"id": "restart", "title": t["button_restart"]}]}
 
@@ -974,8 +1075,9 @@ def _with_hd_video(message):
     return message
 
 
-def _hd_how_to(t):
-    return _with_hd_video({"text": t["hd_how_to"].format(max=MAX_PHOTOS), "buttons": [
+def _hd_how_to(t, state):
+    return _with_hd_video({"text": t["hd_how_to"].format(
+        max=MAX_PHOTOS, photos=_photos(t, state["photos"])), "buttons": [
         {"id": "hd_continue", "title": t["button_hd_continue_no_hd"]},
     ]})
 
@@ -992,8 +1094,10 @@ def _cover_buttons(t, state):
     ]}
 
 
-def _title_request(t):
-    return {"text": t["ask_title"].format(max=MAX_TITLE_LENGTH), "buttons": [
-        {"id": "cover_no", "title": t["button_cover_no"]},
-        {"id": "add_photos", "title": t["button_add_photos"]},
-    ]}
+def _title_request(t, editing=False):
+    # Only "no title" (owner's test, task 1.2b: more buttons here confused people),
+    # plus "no change" when changing it after seeing the album.
+    buttons = [{"id": "cover_no", "title": t["button_cover_no"]}]
+    if editing:
+        buttons.append(_no_change_button(t))
+    return {"text": t["ask_title"].format(max=MAX_TITLE_LENGTH), "buttons": buttons}

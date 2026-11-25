@@ -53,6 +53,8 @@ from whatsapp import WhatsApp, WhatsAppError
 # can reach it, never other devices on the home Wi-Fi.
 HOST = "127.0.0.1"
 PORT = 8000
+# After a video, wait this long before the next message, so it arrives first.
+VIDEO_PAUSE_SECONDS = 2
 WEBHOOK_PATH = "/webhook"
 # Webhook notices are small. Refuse anything bigger (protects the Mac).
 MAX_BODY_BYTES = 1_000_000
@@ -151,7 +153,8 @@ def send(to, message):
 
 def save_photo_safely(order_id, number, media):
     try:
-        save_photo(db, whatsapp, order_id, number, media)
+        save_photo(db, whatsapp, order_id, number, media,
+                   on_size=lambda side: orders.photo_size(order_id, number, side))
     except Exception:
         log.exception("Something went wrong while saving a photo")
     finally:
@@ -189,8 +192,12 @@ def handle_notice(data):
                 if photo:
                     order_id, number = photo
                     photo_savers.submit(save_photo_safely, order_id, number, value)
-                for reply in replies:
+                for number, reply in enumerate(replies):
                     send(sender, reply)
+                    if reply.get("video_file") and number < len(replies) - 1:
+                        # A video can arrive after a text sent just behind it; the
+                        # next message (e.g. "send the cover photo") must come last.
+                        time.sleep(VIDEO_PAUSE_SECONDS)
 
 
 def report_failed(status):
@@ -330,7 +337,10 @@ def main():
     def make_link(result):
         code = preview_links.create(result["folder"], result["previews"], result["pages"],
                                     photos=result.get("photos_in_album"),
-                                    design=result.get("design"))
+                                    design=result.get("design"),
+                                    full_pages=result.get("full_pages"),
+                                    photos_on_pages=result.get("photos_on_pages"),
+                                    left_out=result.get("left_out"))
         return f"{public_url}/album/{code}"
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start
