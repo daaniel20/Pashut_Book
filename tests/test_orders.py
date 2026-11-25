@@ -351,6 +351,23 @@ class AlbumReadyTest(unittest.TestCase):
         self.say("text", "עוד משהו")
         self.assertEqual(len(self.ready), 1)
 
+    def test_no_change_does_not_build_again(self):
+        # Task 1.2b: "↩️ בלי שינוי" after the previews keeps the album as it is.
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.finish()
+        self.say("button", "cover_no")
+        order_id = self.db.orders[0]["id"]
+        self.orders.add_note(PHONE, order_id, "previews_sent")
+        self.say("button", "edit_menu")
+        self.say("button", "edit_design")
+        self.say("button", "no_change")
+        self.assertEqual(len(self.ready), 1)
+        self.assertTrue(self.orders.is_done(PHONE, order_id))
+        self.say("button", "edit_design")
+        self.say("button", "design_colorful")                # a real change: built again
+        self.assertEqual(len(self.ready), 2)
+
     def test_resend_in_hd(self):
         self.say("text", "שלום")
         self.say("button", "design_classic")

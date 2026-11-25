@@ -119,10 +119,15 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
 
 
 # The cover title over the photo: no band (owner's feedback: the band hid part
-# of the photo). White letters with a soft shadow; dark letters on a very
-# bright part of the photo (sky, a white wall).
+# of the photo). Always white letters with a soft shadow. Where the photo behind
+# the title is bright or busy, a soft dark fade from the edge of the cover makes
+# them readable. (Task 1.2b, owner's test: the old rule, dark letters on a bright
+# area, made the title vanish on a bright rug with black stripes.)
 TITLE_TEXT_HEIGHT = 0.5      # the letters use this part of the title area's height
-BRIGHT = 170                 # brighter than this (0-255) behind the title: dark letters
+FADE_BRIGHT = 120            # brighter than this (0-255, on average) behind the title: fade
+FADE_BUSY = 45               # or busier than this (how much it varies): fade
+FADE_DARKEST = 200           # the fade at the cover's edge (0-255; 255 = black)
+FADE_REACH = 2.2             # the fade covers this many times the title area, then is gone
 
 
 def _draw_title(image, album, style, ppm):
@@ -159,10 +164,10 @@ def _draw_title(image, album, style, ppm):
         for xy, text in places:
             draw.text(xy, text, font=font, fill=style["title_color"])
         return
-    behind = image.crop((int(left), int(top), int(right), int(bottom))).convert("L")
-    bright = ImageStat.Stat(behind).mean[0] > BRIGHT
-    letters, shade = ((34, 34, 34), (255, 255, 255, 150)) if bright else \
-                     ((255, 255, 255), (0, 0, 0, 160))
+    behind = ImageStat.Stat(image.crop((int(left), int(top), int(right), int(bottom))).convert("L"))
+    if behind.mean[0] > FADE_BRIGHT or behind.stddev[0] > FADE_BUSY:
+        _fade(image, top, bottom, album.title_place == "top")
+    letters, shade = (255, 255, 255), (0, 0, 0, 170)
     shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(shadow)
     for (x, y), text in places:
@@ -172,6 +177,21 @@ def _draw_title(image, album, style, ppm):
     draw = ImageDraw.Draw(image)
     for xy, text in places:
         draw.text(xy, text, font=font, fill=letters)
+
+
+def _fade(image, top, bottom, at_top):
+    """Darken the cover softly from its edge (top or bottom) toward the middle,
+    behind the title: strongest at the edge, gone FADE_REACH title areas in."""
+    reach = int((bottom - top) * FADE_REACH)
+    column = Image.new("L", (1, reach))
+    for i in range(reach):
+        from_edge = i / reach                  # 0 at the cover's edge, 1 where it's gone
+        column.putpixel((0, i), int(FADE_DARKEST * (1 - from_edge) ** 1.6))
+    if not at_top:
+        column = column.transpose(Image.FLIP_TOP_BOTTOM)
+    mask = column.resize((image.width, reach))
+    y = 0 if at_top else image.height - reach
+    image.paste((0, 0, 0), (0, y, image.width, y + reach), mask)
 
 
 def printable(text):
