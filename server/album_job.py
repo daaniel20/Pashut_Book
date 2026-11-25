@@ -145,6 +145,22 @@ class AlbumJobs:
         log.info("Album %s: sent the preview link", name)
 
 
+def album_numbers(order_id):
+    """The numbers of the photos inside the album as last built (not the cover),
+    from its layout.json (task 3.2). None if it can't be read."""
+    path = PROJECT_DIR / "output" / "albums" / short(order_id) / "layout.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        names = [spot["photo"] for page in data["pages"] for spot in page["spots"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    numbers = set()
+    for name in names:
+        if isinstance(name, str) and name.startswith("photo ") and name[6:].isdigit():
+            numbers.add(int(name[6:]))
+    return numbers
+
+
 def needs_hd(info):
     return info["photos"] > 0 and info["without_hd"] >= WITHOUT_HD_SHARE * info["photos"]
 

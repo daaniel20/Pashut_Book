@@ -31,3 +31,22 @@ def load_texts(language="he"):
     """Return all customer-facing texts for one language."""
     path = TEXTS_DIR / f"{language}.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# The album's price and shipping, in shekels (task 3.2). Not final: change them
+# in .env (PRICE=150, SHIPPING=30) without touching the code. The ROI Google
+# Sheet is the source for these numbers.
+DEFAULT_PRICE = 150
+DEFAULT_SHIPPING = 30
+
+
+def prices(env=None):
+    """(album price, shipping) in whole shekels, from .env or the defaults."""
+    env = read_env() if env is None else env
+
+    def number(name, default):
+        try:
+            return int(float(env.get(name, default)))
+        except ValueError:
+            return default
+    return number("PRICE", DEFAULT_PRICE), number("SHIPPING", DEFAULT_SHIPPING)

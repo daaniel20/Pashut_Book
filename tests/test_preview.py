@@ -75,6 +75,39 @@ class PreviewTest(unittest.TestCase):
             self.assertEqual(len(list((folder / preview.FOLDER).glob("*.jpg"))), 3)
 
 
+@unittest.skipIf(Image is None, "Pillow is not installed")
+class PhotoNumberTest(unittest.TestCase):
+    """Task 3.2: a small number on every photo inside the album."""
+
+    def test_number_from_the_photo_name(self):
+        self.assertEqual(preview.photo_number("photo 015"), 15)
+        self.assertIsNone(preview.photo_number("IMG_015.jpg"))
+
+    def test_each_photo_gets_its_number_in_the_corner(self):
+        import layout
+        spot = layout.Spot(photo="photo 015", x=100, y=0, width=100, height=100, small=False)
+        page = layout.Page("one", "#ffffff", [spot])
+        cover = layout.Page("cover", "#ffffff", [layout.Spot(
+            photo="photo 001", x=0, y=0, width=200, height=200, small=False)])
+        album = layout.Album("classic", None, 200, 200, cover, pages=[page, layout.Page("empty", "#ffffff")])
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            for name in ("cover.jpg", "page-01.jpg", "page-02.jpg"):
+                Image.new("RGB", (1000, 1000), "white").save(folder / name)
+            made = preview.make_previews(folder, 2, album=album,
+                                         numbers={"photo 015": 15, "photo 001": 1})
+            # Page 1 is alone on the left; its photo is the page's right half.
+            image = Image.open(made[1]["file"]).convert("RGB")
+            size = preview.PAGE_PIXELS
+            corner = (size - preview.BADGE_INSET - preview.BADGE_SIZE // 2,
+                      preview.BADGE_INSET + preview.BADGE_SIZE // 2)
+            self.assertLess(sum(image.getpixel((corner[0], corner[1] + 12))), 350)  # dark badge
+            self.assertGreater(sum(image.getpixel((size // 4, size - 20))), 600)   # no badge there
+            # The cover has no number.
+            cover = Image.open(made[0]["file"]).convert("RGB")
+            self.assertGreater(sum(cover.getpixel(corner)), 600)
+
+
 class LinkTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

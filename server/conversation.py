@@ -49,6 +49,23 @@ The steps, in order:
   answer adds "approved" or "owner_problem". From "love it" on, anything the
   customer types is passed to the owner (state["for_owner"]). Any change to the
   album clears all of these: the album is built again and needs a new approval.
+  Photo changes (task 3.2): once the previews were sent, the "change something"
+  list also has "replace or remove a photo". Every photo in the preview has a
+  small number (the order it was sent in):
+  photo_number  -> "which photo?" The customer types the number. orders.py puts
+                   the album's numbers in state["album_numbers"] to check it.
+  photo_action  -> [replace] [remove] [keep as it was]
+  photo_replace -> waiting for the new photo. It takes the old one's spot.
+  The changes are notes: "removed:N", "replaced:N:M" (photo M instead of N);
+  album/build_album.py reads them. At most MAX_PHOTO_CHANGES per album.
+  After the owner approves (task 3.2):
+  address       -> waiting for the shipping address (one typed message)
+  address_check -> "we'll send it to: …, correct?" [correct] [fix]
+  payment       -> waiting for the payment (state["ask_payment"] tells orders.py
+                   to ask the owner to send a Bit request by hand)
+  paid          -> the owner tapped "payment received": the album goes to print.
+  From "address" on, the album can't be changed by the customer any more:
+  "change something" asks them to write what they want, for the owner.
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -62,9 +79,10 @@ All customer-facing words come from server/texts/<language>.json.
 Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 """
 
+import re
 import unicodedata
 
-from settings import MEDIA_DIR
+from settings import MEDIA_DIR, prices
 
 # The two album designs. Their names for the customer are in the texts file
 # ("design_classic", "design_colorful").
@@ -81,6 +99,18 @@ HD_VIDEO = MEDIA_DIR / "hd-how-to-iphone.mp4"
 # built again, sent again, and needs the owner's approval again).
 ALBUM_NOTES = ("previews_sent", "after_previews", "preview_ok", "after_done",
                "owner_check", "owner_problem", "approved")
+# How many photos a customer may replace or remove in one album (the README's
+# "limited number of simple changes"). More: they write to us (the owner).
+MAX_PHOTO_CHANGES = 10
+# The steps after the owner approved the album (task 3.2): it's finished.
+AFTER_APPROVAL = ("address", "address_check", "payment", "paid")
+# Steps of an album that is already finished (starting over keeps it).
+FINISHED_STEPS = ("done",) + AFTER_APPROVAL
+# The buttons that change the album (from the "change something" list).
+EDIT_BUTTONS = ("edit_menu", "edit_title", "edit_design", "edit_cover", "add_photos",
+                "edit_photo")
+# The shortest and longest shipping address we accept (letters).
+MIN_ADDRESS, MAX_ADDRESS = 10, 300
 # Unicode kinds of characters the album can't print: emojis and other symbols
 # (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
 _NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
@@ -242,7 +272,20 @@ def _answer(state, kind, value, words, t):
             return [_hd_how_to(t)]
         return [hd_question(t)]
 
+    if step in ("photo_number", "photo_action", "photo_replace"):
+        return _photo_change(state, kind, value, words, t)
+
+    if step in AFTER_APPROVAL:
+        return _after_approval(state, kind, value, words, t)
+
     # step == "done"
+    if (kind == "button" and value == "edit_photo") or words == _clean(t["button_edit_photo"]):
+        if len(photo_changes(state)) >= MAX_PHOTO_CHANGES:
+            state["notes"].append("team_asked")
+            return [_text(t["photo_changes_limit"].format(max=MAX_PHOTO_CHANGES))]
+        state["step"] = "photo_number"
+        state["notes"].append("editing")
+        return [_keep_photo_button(t, t["ask_photo_number"])]
     if (kind == "button" and value == "edit_title") or words == _clean(t["button_edit_title"]):
         state["step"] = "title"
         state["notes"].append("editing")
@@ -258,7 +301,7 @@ def _answer(state, kind, value, words, t):
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
         return _back_to_photos(state, t)
     if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
-        return [_edit_list(t, t["choose_edit"])]
+        return [_edit_list(t, t["choose_edit"], state)]
     if _tapped(kind, value, words, "confirm", t["button_confirm"]):
         if "previews_sent" in state["notes"]:
             # The old summary button, tapped after the previews: same as "love it".
@@ -269,11 +312,175 @@ def _answer(state, kind, value, words, t):
         return [_text(t["confirmed"])]
     if _tapped(kind, value, words, "preview_ok", t["button_preview_ok"]):
         return _loved(state, t)
-    if kind == "text" and words and "preview_ok" in state["notes"]:
+    if kind == "text" and words and ("preview_ok" in state["notes"] or "team_asked" in state["notes"]):
         # After "love it", the owner is in the loop (task 3.1): pass it on.
+        # (Also after "you reached the most photo changes, write to us".)
+        if "team_asked" in state["notes"]:
+            state["notes"].remove("team_asked")
         state["for_owner"] = value.strip()
         return [_text(t["sent_to_team"])]
     return _after_done(state, t)
+
+
+# ---------- replacing or removing a photo by its number (task 3.2) ----------
+
+def photo_changes(state):
+    """The photo changes so far: ["removed:15", "replaced:20:57", …]."""
+    return [n for n in state["notes"] if n.startswith(("removed:", "replaced:"))]
+
+
+def album_photo_count(state):
+    """How many photos the album holds: sent, minus removed and replaced ones."""
+    return state["photos"] - len(photo_changes(state))
+
+
+def _photo_change(state, kind, value, words, t):
+    step = state["step"]
+    if _tapped(kind, value, words, "keep_photo", t["button_keep_photo"]):
+        return _back_to_album(state, t)
+    number = _note(state, "photo_pick")
+    if step == "photo_number":
+        if kind != "text" or not words:
+            return [_keep_photo_button(t, t["ask_photo_number"])]
+        found = re.findall(r"\d+", value)
+        if len(found) != 1:
+            return [_keep_photo_button(t, t["photo_number_missing"])]
+        number = int(found[0])
+        if number not in _album_numbers(state):
+            return [_keep_photo_button(t, t["photo_number_unknown"].format(number=number))]
+        _set_note(state, "photo_pick", number)
+        state["step"] = "photo_action"
+        return [_photo_action_buttons(t, number)]
+    if step == "photo_action":
+        if _tapped(kind, value, words, "photo_remove", t["button_photo_remove"]):
+            state["notes"].append(f"removed:{number}")
+            _set_note(state, "photo_pick", None)
+            return [_text(t["photo_removed"].format(number=number))] + _finish(state, t)
+        if _tapped(kind, value, words, "photo_replace", t["button_photo_replace"]):
+            state["step"] = "photo_replace"
+            return [_keep_photo_button(t, t["ask_replacement"].format(number=number))]
+        return [_photo_action_buttons(t, number)]
+    # step == "photo_replace": waiting for the new photo
+    return [_keep_photo_button(t, t["ask_replacement"].format(number=number))]
+
+
+def _photo_replaced(state, t):
+    """The new photo for photo N arrived: it takes N's place in the album."""
+    number = _note(state, "photo_pick")
+    state["photos"] += 1
+    state["notes"].append(f"replaced:{number}:{state['photos']}")
+    _set_note(state, "photo_pick", None)
+    return [_text(t["photo_replaced"].format(number=number))] + _finish(state, t)
+
+
+def _album_numbers(state):
+    """The numbers of the photos inside the album (not the cover). orders.py
+    reads them from the album (state["album_numbers"]); without it, any photo
+    sent that wasn't removed or replaced."""
+    if state.get("album_numbers") is not None:
+        return set(state["album_numbers"])
+    gone = {int(n.split(":")[1]) for n in photo_changes(state)}
+    return set(range(1, state["photos"] + 1)) - gone - {cover_photo(state)}
+
+
+def _back_to_album(state, t):
+    """"Keep as it was": nothing changes, back to the album as it was."""
+    state["step"] = "done"
+    _set_note(state, "photo_pick", None)
+    while "editing" in state["notes"]:
+        state["notes"].remove("editing")
+    if "previews_sent" in state["notes"]:
+        return [after_previews(t)]
+    return [_summary(state, t)]
+
+
+def _photo_action_buttons(t, number):
+    return {"text": t["photo_action"].format(number=number), "buttons": [
+        {"id": "photo_replace", "title": t["button_photo_replace"]},
+        {"id": "photo_remove", "title": t["button_photo_remove"]},
+        {"id": "keep_photo", "title": t["button_keep_photo"]},
+    ]}
+
+
+def _keep_photo_button(t, text):
+    return {"text": text, "buttons": [{"id": "keep_photo", "title": t["button_keep_photo"]}]}
+
+
+# ---------- after the owner approved: address and payment (task 3.2) ----------
+
+def owner_approved(state):
+    """The owner approved the album (called by orders.py): ask for the address.
+    The customer's message is owner_approved_customer in the texts."""
+    state["step"] = "address"
+
+
+def owner_paid(state):
+    """The owner tapped "payment received" (called by orders.py)."""
+    state["step"] = "paid"
+    while "payment_wait" in state["notes"]:
+        state["notes"].remove("payment_wait")
+    if "paid" not in state["notes"]:
+        state["notes"].append("paid")
+
+
+def payment_amounts():
+    """(album price, shipping, total) in shekels, from .env (PRICE, SHIPPING)."""
+    price, shipping = prices()
+    return price, shipping, price + shipping
+
+
+def _after_approval(state, kind, value, words, t):
+    step = state["step"]
+    if kind == "button" and value in EDIT_BUTTONS or \
+            (kind == "text" and words == _clean(t["button_edit"])):
+        # The album is approved: changes now go through the team.
+        _once(state, "team_asked", [])
+        return [_text(t["album_locked"])]
+    if kind == "text" and words and "team_asked" in state["notes"]:
+        # They wrote what to change (after "change something"): for the owner.
+        state["notes"].remove("team_asked")
+        state["for_owner"] = value.strip()
+        return [_text(t["sent_to_team"])] + _step_prompt(state, t)
+    if step == "address":
+        if kind != "text" or not words:
+            return [_text(t["ask_address"])]
+        address = "\n".join(" ".join(line.split()) for line in value.strip().splitlines()
+                             if line.strip())
+        if len(address) < MIN_ADDRESS:
+            return [_text(t["address_too_short"])]
+        state["address"] = address[:MAX_ADDRESS]
+        state["step"] = "address_check"
+        return [_address_check(t, state)]
+    if step == "address_check":
+        if _tapped(kind, value, words, "address_ok", t["button_address_ok"]):
+            state["step"] = "payment"
+            state["notes"].append("payment_wait")
+            state["ask_payment"] = True   # orders.py asks the owner to send a Bit request
+            price, shipping, total = payment_amounts()
+            state["price"] = total
+            return [_text(t["payment"].format(price=price, shipping=shipping, total=total))]
+        if _tapped(kind, value, words, "address_fix", t["button_address_fix"]):
+            state["step"] = "address"
+            return [_text(t["ask_address"])]
+        if kind == "text" and words:
+            # They typed the address again instead of tapping: use the new one.
+            state["step"] = "address"
+            return _after_approval(state, kind, value, words, t)
+        return [_address_check(t, state)]
+    if kind == "text" and words:
+        # Waiting for the payment, or already paid: anything typed is for the owner.
+        state["for_owner"] = value.strip()
+        return [_text(t["sent_to_team"])]
+    if step == "payment":
+        return _once(state, "payment_told", [_text(t["payment_waiting"])])
+    return _once(state, "paid_told", [_text(t["after_paid"])])
+
+
+def _address_check(t, state):
+    return {"text": t["address_check"].format(address=state["address"]), "buttons": [
+        {"id": "address_ok", "title": t["button_address_ok"]},
+        {"id": "address_fix", "title": t["button_address_fix"]},
+    ]}
 
 
 def _loved(state, t):
@@ -343,6 +550,8 @@ def with_restart(state, message, t):
         return message
     if state["step"] == "design" and "editing" not in state["notes"]:
         return message
+    if state["step"] in AFTER_APPROVAL:
+        return message   # the album is approved: no "new album" button here
     return dict(message, buttons=buttons + [{"id": "restart", "title": t["button_restart"]}])
 
 
@@ -370,7 +579,7 @@ def _restart(state, kind, value, words, t):
         return _answer(state, "text", "", "", t)   # the welcome and the design buttons
     # Ask first: the photos would be deleted.
     state["notes"].append("confirm_restart")
-    finished = state["step"] == "done" or "editing" in state["notes"]
+    finished = state["step"] in FINISHED_STEPS or "editing" in state["notes"]
     text = t["restart_confirm_done"] if finished else \
         t["restart_confirm"].format(photos=_photos(t, state["photos"]))
     return [{"text": text, "buttons": [
@@ -400,6 +609,20 @@ def _step_prompt(state, t):
         return [_title_request(t)]
     if step == "hd_question":
         return [hd_question(t)]
+    if step == "photo_number":
+        return [_keep_photo_button(t, t["ask_photo_number"])]
+    if step == "photo_action":
+        return [_photo_action_buttons(t, _note(state, "photo_pick"))]
+    if step == "photo_replace":
+        return [_keep_photo_button(t, t["ask_replacement"].format(number=_note(state, "photo_pick")))]
+    if step == "address":
+        return [_text(t["ask_address"])]
+    if step == "address_check":
+        return [_address_check(t, state)]
+    if step == "payment":
+        return [_text(t["payment_waiting"])]
+    if step == "paid":
+        return [_text(t["after_paid"])]
     if "previews_sent" in state["notes"]:
         return [after_previews(t)]
     return [_summary(state, t)]
@@ -497,6 +720,12 @@ def _media(media):
 
 def _on_photo(state, t):
     step = state["step"]
+    if step == "photo_replace":
+        return _photo_replaced(state, t)
+    if step in AFTER_APPROVAL:
+        return _once(state, "photo_after_approval", [_text(t["photo_after_approval"])])
+    if step in ("photo_number", "photo_action"):
+        return [_text(t["photo_choose_first"])] + _step_prompt(state, t)
     if step == "hd_question":
         # They're already sending the photos again, in HD.
         _resend_photos(state)
@@ -606,6 +835,8 @@ def _resend_photos(state):
     for note in ("photo_limit", "not_a_photo", "cover_kept"):
         if note in state["notes"]:
             state["notes"].remove(note)
+    for note in photo_changes(state):
+        state["notes"].remove(note)   # the old numbers are gone
 
 
 def _pick_design(kind, value, words, t):
@@ -659,7 +890,7 @@ def album_changed(state):
 def _summary(state, t):
     summary = t["summary"].format(
         design=t["design_" + state["design"]],
-        count=state["photos"],
+        count=album_photo_count(state),
         title=state["title"] or t["no_title"],
     )
     return {"text": summary, "buttons": [
@@ -711,16 +942,19 @@ def _change_button(t, text):
     return {"text": text, "buttons": [{"id": "edit_menu", "title": t["button_edit"]}]}
 
 
-def _edit_list(t, text):
+def _edit_list(t, text, state):
     """The "change something" list (WhatsApp allows only 3 buttons,
-    so the choices are in a list that opens from one button)."""
-    return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"], "rows": [
-        {"id": "edit_title", "title": t["button_edit_title"]},
-        {"id": "edit_design", "title": t["button_edit_design"]},
-        {"id": "edit_cover", "title": t["button_edit_cover"]},
-        {"id": "add_photos", "title": t["button_add_photos"]},
-        {"id": "restart", "title": t["button_restart_list"]},
-    ]}}
+    so the choices are in a list that opens from one button).
+    "Replace or remove a photo" only once the customer has seen the numbers."""
+    rows = [{"id": "edit_title", "title": t["button_edit_title"]},
+            {"id": "edit_design", "title": t["button_edit_design"]},
+            {"id": "edit_cover", "title": t["button_edit_cover"]},
+            {"id": "add_photos", "title": t["button_add_photos"]},
+            {"id": "restart", "title": t["button_restart_list"]}]
+    if "previews_sent" in state["notes"]:
+        rows.insert(0, {"id": "edit_photo", "title": t["button_edit_photo"]})
+    return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"],
+                                   "rows": rows}}
 
 
 def _keep_cover_button(t, text):

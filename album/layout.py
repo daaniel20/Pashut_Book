@@ -541,6 +541,42 @@ def _fit_photo(spot, photo, full_page=False):
         spot.crop = cut
 
 
+def keep_places(old, new, replaced, photos):
+    """Task 3.2: the customer replaced photos (replaced: {old name: new name}).
+    If the new plan holds the same photos as the old album, with only those
+    swapped, return the OLD album with each new photo in its old photo's spot,
+    so the rest of the album stays exactly as the customer saw it. Otherwise
+    (other changes too, or the design or title changed) return the new plan.
+    photos: the PhotoCheck results (for the new photos' shapes and faces)."""
+    def final(name):
+        seen = set()
+        while name in replaced and name not in seen:
+            seen.add(name)
+            name = replaced[name]
+        return name
+
+    def names(album):
+        return {s.photo for page in [album.cover] + album.pages for s in page.spots if s.photo}
+
+    if old is None or (old.design, old.title, old.width, old.height) != \
+            (new.design, new.title, new.width, new.height):
+        return new
+    if {final(n) for n in names(old)} != names(new):
+        return new
+    if final(old.cover.spots[0].photo) != old.cover.spots[0].photo:
+        return new   # the cover itself was swapped: let the cover rules decide
+    by_name = {p.name: p for p in photos}
+    for page in old.pages:
+        for spot in page.spots:
+            name = final(spot.photo) if spot.photo else None
+            if name and name != spot.photo:
+                spot.photo = name
+                spot.crop = (0, 0, 1, 1)
+                _fit_photo(spot, by_name[name], full_page=page.template == "full")
+    old.left_out, old.notes = new.left_out, new.notes
+    return old
+
+
 # Where the cover title goes: this part of the page height, at the top or
 # bottom of the photo. No face may be there.
 TITLE_BAND = 0.22

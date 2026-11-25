@@ -18,6 +18,12 @@ How it works:
 6. The owner can type "אישורים" to get all albums still waiting again (for
    example after WhatsApp's 24-hour window closed, see below).
 
+Payment (task 3.2): after "approve", the customer sends a shipping address and
+confirms it. Then the owner gets "send a Bit request of ₪X to 05…" with the
+address and a [💰 התקבל תשלום] button. The owner sends the Bit request by hand
+from their own Bit app, and taps the button when the money arrives: the
+customer hears the album is going to print. "אישורים" also resends these.
+
 If the customer changes anything, the album is built again, and the old
 request's buttons stop working (each request has its own code in the button);
 a new request comes when the customer loves the new version.
@@ -39,6 +45,7 @@ import secrets
 import subprocess
 import threading
 
+import conversation
 import preview_links
 from orders import short
 from settings import PROJECT_DIR
@@ -111,6 +118,11 @@ class OwnerApprovals:
                  "design": t.get("design_" + str(info.get("design")), "?"),
                  "title": info.get("title") or t["no_title"]}
         text = t["owner_request"].format(**facts)
+        changes = conversation.photo_changes(info) if info.get("notes") else []
+        if changes:
+            text += "\n" + t["owner_photo_changes"].format(list=", ".join(
+                c.replace("removed:", "🗑️ ").replace("replaced:", "📷 ").replace(":", "→")
+                for c in changes))
         checks = self._checks(report)
         if checks:
             text += "\n\n" + checks
@@ -181,6 +193,9 @@ class OwnerApprovals:
         if not phone:
             self.send(self.owner, {"text": t["owner_old"]})
             return
+        if action == "owner_paid":
+            self._paid(phone, order_id)
+            return
         if action == "owner_write":
             with self._guard:
                 self._writing = (phone, order_id)
@@ -204,6 +219,47 @@ class OwnerApprovals:
                 self._writing = (phone, order_id)
             self.send(self.owner, {"text": t["owner_write"]})
             log.info("Album %s: the owner found a problem", short(order_id))
+
+    # ---------- payment (task 3.2) ----------
+
+    def payment(self, phone, order_id):
+        """The customer confirmed the address: ask the owner to send a Bit
+        request (called by orders.py, with the customer's order locked)."""
+        if not self.owner:
+            log.warning("Order %s is waiting for payment, but OWNER_PHONE is not set in .env",
+                        short(order_id))
+            return
+        threading.Thread(target=self._safe_payment, args=(phone, order_id), daemon=True).start()
+
+    def _safe_payment(self, phone, order_id):
+        try:
+            self.send_payment_request(phone, order_id)
+        except Exception:
+            log.exception("Could not ask the owner to collect payment for %s", short(order_id))
+
+    def send_payment_request(self, phone, order_id):
+        t = self.texts
+        info = self.orders.info(phone, order_id) or {}
+        _, _, total = conversation.payment_amounts()
+        self.send(self.owner, {"text": t["owner_payment"].format(
+            order=short(order_id), total=info.get("price") or total,
+            phone=local_number(phone), address=info.get("address") or "?"),
+            "buttons": [{"id": f"owner_paid:{order_id}", "title": t["button_owner_paid"]}]})
+        log.info("Order %s: asked the owner to collect the payment", short(order_id))
+
+    def _paid(self, phone, order_id):
+        t = self.texts
+        result = self.orders.owner_paid(phone, order_id)
+        if result == "already":
+            self.send(self.owner, {"text": t["owner_paid_already"]})
+            return
+        if result != "ok":
+            self.send(self.owner, {"text": t["owner_old"]})
+            return
+        sent = self.send(phone, {"text": t["paid_customer"]})
+        self.send(self.owner, {"text": t["owner_paid"].format(order=short(order_id))
+                               + ("" if sent else "\n\n" + t["owner_not_sent"])})
+        log.info("💰 Order %s paid", short(order_id))
 
     def _pass_on(self, writing, text):
         """The owner's typed message goes to the customer, as is."""
@@ -240,19 +296,35 @@ class OwnerApprovals:
         token = self.orders.owner_token(phone, order_id)
         if token and "approved" not in info["notes"]:
             buttons.append({"id": f"owner_ok:{order_id}:{token}", "title": t["button_owner_ok"]})
+        if "payment_wait" in info["notes"]:
+            buttons.append({"id": f"owner_paid:{order_id}", "title": t["button_owner_paid"]})
         self.send(self.owner, {"text": t["owner_customer_wrote"].format(
             phone=_last_digits(phone), order=short(order_id), text=text), "buttons": buttons})
 
     def resend_waiting(self):
-        """The owner typed "אישורים": send every album still waiting again."""
+        """The owner typed "אישורים": send every album still waiting for approval
+        or for payment again."""
         waiting = self.orders.waiting_for_owner()
-        if not waiting:
+        paying = self.orders.waiting_for_payment()
+        if not waiting and not paying:
             self.send(self.owner, {"text": self.texts["owner_none_waiting"]})
             return
         for phone, order_id in waiting:
             token = self.orders.owner_token(phone, order_id)
             if token:
                 self._send_request(phone, order_id, token)
+        for phone, order_id in paying:
+            self.send_payment_request(phone, order_id)
+
+
+def local_number(phone):
+    """The customer's number as Israelis write it, for the Bit request:
+    "972501234567" -> "050-123-4567". Other countries stay as they are (+…)."""
+    digits = "".join(c for c in phone or "" if c.isdigit())
+    if digits.startswith("972") and len(digits) == 12:
+        local = "0" + digits[3:]
+        return f"{local[:3]}-{local[3:6]}-{local[6:]}"
+    return "+" + digits if digits else "?"
 
 
 def _last_digits(phone):

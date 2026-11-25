@@ -162,5 +162,28 @@ class RebuildTest(unittest.TestCase):
         self.assertEqual(len(sent), 1)  # "1 blurry photo left out" is said once
 
 
+
+class AlbumNumbersTest(unittest.TestCase):
+    """Task 3.2: the photo numbers inside the album, to check what the customer types."""
+
+    def test_numbers_from_the_layout(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            real = album_job.PROJECT_DIR
+            album_job.PROJECT_DIR = Path(folder)
+            try:
+                self.assertIsNone(album_job.album_numbers("abcdef12-0000"))
+                albums = Path(folder) / "output" / "albums" / "abcdef12"
+                albums.mkdir(parents=True)
+                (albums / "layout.json").write_text(json.dumps({
+                    "cover": {"spots": [{"photo": "photo 001"}]},
+                    "pages": [{"spots": [{"photo": "photo 002"}, {"photo": "photo 015"}]},
+                              {"spots": []}]}))
+                self.assertEqual(album_job.album_numbers("abcdef12-0000"), {2, 15})
+            finally:
+                album_job.PROJECT_DIR = real
+
+
 if __name__ == "__main__":
     unittest.main()
