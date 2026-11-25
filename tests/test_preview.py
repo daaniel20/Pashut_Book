@@ -124,6 +124,22 @@ class LinkTest(unittest.TestCase):
         # Each page's label is in the image itself: no second caption on the page.
         self.assertNotIn("figcaption", page)
 
+    def test_page_shows_more_facts(self):
+        # Task 1.2b (owner's test): photos per page, full pages, what was left out.
+        t = load_texts("he")
+        code = preview_links.create(self.album, self.previews, 22, links_dir=self.links,
+                                    photos=54, design="colorful", full_pages=6,
+                                    photos_on_pages=53, left_out={"blurry": 2, "duplicate": 1})
+        page = preview_links.page_html(code, preview_links.find(code, links_dir=self.links), t)
+        for text in ("בממוצע 2.4 תמונות בעמוד", "6 תמונות על עמוד שלם",
+                     "לא נכנסו לאלבום: 2 תמונות מטושטשות, תמונה כפולה אחת"):
+            self.assertIn(text, page)
+        code = preview_links.create(self.album, self.previews, 22, links_dir=self.links,
+                                    photos=54, left_out={"blurry": 0, "duplicate": 0})
+        page = preview_links.page_html(code, preview_links.find(code, links_dir=self.links), t)
+        self.assertNotIn("לא נכנס", page)                 # nothing left out: not mentioned
+        self.assertNotIn("בממוצע", page)                  # older links without these facts
+
     def test_wrong_or_old_codes_open_nothing(self):
         for code in ("", "short", "../" * 11 + "xx", "a" * 32):
             self.assertIsNone(preview_links.find(code, links_dir=self.links))

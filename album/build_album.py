@@ -90,8 +90,12 @@ def build(photos, design, title, folder, cover=None, cover_kept=False):
     _write_overview(folder, album, files, results, photos)
     previews = preview.make_previews(folder, len(album.pages))
     in_album = {s.photo for page in [album.cover] + album.pages for s in page.spots if s.photo}
+    # For the customer's preview page (task 1.2b): photos per page, full pages.
+    on_pages = sum(1 for page in album.pages for s in page.spots if s.photo)
     info.update(pages=len(album.pages), design=design, folder=str(folder),
-                notes=album.notes, previews=previews, photos_in_album=len(in_album))
+                notes=album.notes, previews=previews, photos_in_album=len(in_album),
+                photos_on_pages=on_pages,
+                full_pages=sum(page.template == "full" for page in album.pages))
     return info
 
 
