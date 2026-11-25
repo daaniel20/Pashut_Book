@@ -51,6 +51,8 @@ from whatsapp import WhatsApp, WhatsAppError
 # can reach it, never other devices on the home Wi-Fi.
 HOST = "127.0.0.1"
 PORT = 8000
+# After a video, wait this long before the next message, so it arrives first.
+VIDEO_PAUSE_SECONDS = 2
 WEBHOOK_PATH = "/webhook"
 # Webhook notices are small. Refuse anything bigger (protects the Mac).
 MAX_BODY_BYTES = 1_000_000
@@ -188,8 +190,12 @@ def handle_notice(data):
                 if photo:
                     order_id, number = photo
                     photo_savers.submit(save_photo_safely, order_id, number, value)
-                for reply in replies:
+                for number, reply in enumerate(replies):
                     send(sender, reply)
+                    if reply.get("video_file") and number < len(replies) - 1:
+                        # A video can arrive after a text sent just behind it; the
+                        # next message (e.g. "send the cover photo") must come last.
+                        time.sleep(VIDEO_PAUSE_SECONDS)
 
 
 def report_failed(status):

@@ -166,16 +166,19 @@ def _answer(state, kind, value, words, t):
         if "editing" in state["notes"]:
             # They came back from the summary to change the design.
             return _finish(state, t)
+        # Two messages (owner's test, task 1.2b: one was too busy): the HD how-to
+        # with the clip first, then the cover request LAST, at the bottom of the
+        # chat where the customer acts (and so the cover photo is sent in HD).
         messages = [_with_hd_video(_text(t["design_chosen"].format(
             design=t["design_" + design], max=MAX_PHOTOS)))]
         if state["photos"]:
             # They sent photos before choosing a design: the first one is the cover.
             set_cover_photo(state, 1)
             state["step"] = "photos"
-            messages[0]["text"] = messages[0]["text"].rsplit("\n\n", 1)[0]
             messages.append(_done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"]))))
         else:
             state["step"] = "cover_photo"
+            messages.append(_text(t["start_cover"]))
         return messages
 
     if step == "cover_check":
@@ -263,8 +266,13 @@ def _answer(state, kind, value, words, t):
             state["step"] = "done"
             return [_text(t["hd_continue"])]
         if (kind == "button" and value == "hd_help") or words == _clean(t["button_hd_help"]):
-            # Only the how-to: nothing is deleted until the first new photo arrives,
+            # A short warning, no clip (they saw it after choosing a design; owner's
+            # test, task 1.2b). Nothing is deleted until the first new photo arrives,
             # so they can still change their mind and continue without HD.
+            return [{"text": t["hd_resend_warning"].format(photos=_photos(t, state["photos"])),
+                     "buttons": [{"id": "hd_how", "title": t["button_hd_how"]},
+                                 {"id": "hd_continue", "title": t["button_hd_continue_no_hd"]}]}]
+        if (kind == "button" and value == "hd_how") or words == _clean(t["button_hd_how"]):
             return [_hd_how_to(t, state)]
         return [_hd_question_for(state, t)]
 
