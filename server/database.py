@@ -56,6 +56,13 @@ class Database:
         return self._call("GET", "/rest/v1/orders?select=id,phone,status&order=created_at"
                           "&notes=cs." + quote(json.dumps([note])))
 
+    def orders_since(self, phone, since):
+        """How many orders this phone number started since this time (ISO text),
+        cancelled ones included (task 3.2: new albums per day)."""
+        rows = self._call("GET", "/rest/v1/orders?select=id&phone=eq." + quote(phone)
+                          + "&created_at=gte." + quote(since))
+        return len(rows or [])
+
     def recent_orders(self, limit=5):
         return self._call("GET", f"/rest/v1/orders?order=created_at.desc&limit={limit}"
                           "&select=id,phone,status,step,photo_count,created_at,photos(count)")

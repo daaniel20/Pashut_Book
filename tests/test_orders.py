@@ -65,6 +65,11 @@ class FakeDatabase:
         self.orders.append(row)
         return dict(row)
 
+    def orders_since(self, phone, since):
+        """All of this phone's orders count as today's (the tests run in a day)."""
+        self._check()
+        return sum(o["phone"] == phone for o in self.orders)
+
     def update_order(self, order_id, fields):
         self._check()
         next(o for o in self.orders if o["id"] == order_id).update(fields)
@@ -440,6 +445,23 @@ class AlbumReadyTest(unittest.TestCase):
         self.assertEqual(covers, [(PHONE, self.db.orders[0]["id"], 1)])
         restarted.answer(PHONE, "text", "נו?", TEXTS)
         self.assertEqual(len(covers), 1)                       # started once
+
+    def test_at_most_3_new_albums_a_day(self):
+        phone = "972500000077"
+        for _ in range(orders.MAX_NEW_ALBUMS_PER_DAY - 1):
+            self.orders.answer(phone, "text", "היי", TEXTS)
+            self.orders.answer(phone, "button", "design_classic", TEXTS)
+            self.orders.answer(phone, "text", "אלבום חדש", TEXTS)
+            self.orders.answer(phone, "button", "restart_yes", TEXTS)
+        mine = [o for o in self.db.orders if o["phone"] == phone]
+        self.assertEqual(len(mine), orders.MAX_NEW_ALBUMS_PER_DAY)
+        self.orders.answer(phone, "button", "design_classic", TEXTS)
+        replies, _ = self.orders.answer(phone, "text", "אלבום חדש", TEXTS)
+        self.assertIn("עד 3 אלבומים", replies[0]["text"])
+        self.orders.answer(phone, "button", "restart_yes", TEXTS)
+        self.assertEqual(len([o for o in self.db.orders if o["phone"] == phone]),
+                         orders.MAX_NEW_ALBUMS_PER_DAY)       # no 4th album
+        self.assertEqual(self.orders._states[phone]["step"], "cover_photo")  # carries on
 
     def test_wait_for_photos(self):
         self.orders.photo_saving("o1")

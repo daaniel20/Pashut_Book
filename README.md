@@ -34,9 +34,9 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 6. The customer can add an optional cover title.
 7. **Automatic step:** the system checks photo quality, removes duplicates and blurry photos, sorts by date, picks a cover, and builds the album.
 8. The customer gets **small page images with a "PREVIEW" watermark**. They never get the PDF, so they can't print it elsewhere.
-9. The customer approves, or asks for a **limited number of simple changes** (for example "Page 5: remove photo").
+9. The customer approves, or asks for a **limited number of simple changes**: title, design, cover photo, more photos, or **replace or remove a photo by the small number shown on it** in the preview (up to 10 photos).
 10. **The owner checks and approves** the album, on their own WhatsApp (before payment, so a customer never pays for an album with a problem).
-11. The customer pays with a **Bit or credit card** link and sends a shipping address.
+11. The customer sends a **shipping address** and pays: a **Bit** payment request sent by hand at first, a credit card link later.
 12. The print-quality PDF goes to the printer, and the album is shipped.
 
 ---

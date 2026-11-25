@@ -9,6 +9,8 @@ Task 2.4: then send the customer a private link to the album's preview
 Task 2.5: check the cover photo as soon as it arrives (cover_check.py).
 Task 3.1: when the customer loves the album, ask the owner (OWNER_PHONE in .env)
 to approve it, on WhatsApp (owner_approval.py).
+Task 3.2: replace or remove a photo by its number, then the shipping address,
+and the payment (a Bit request the owner sends by hand).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -39,7 +41,7 @@ from urllib.parse import parse_qs, urlparse
 
 import conversation
 import preview_links
-from album_job import AlbumJobs
+from album_job import AlbumJobs, album_numbers
 from cover_check import CoverChecks
 from database import Database, DatabaseError
 from orders import Orders, save_photo
@@ -346,6 +348,9 @@ def main():
     owner = OwnerApprovals(orders, send, TEXTS, env.get("OWNER_PHONE"), public_url)
     orders.on_approval = owner.start
     orders.on_customer_text = owner.customer_text
+    orders.on_payment = owner.payment                 # task 3.2
+    orders.on_help = owner.help_request               # "עזרה" (task 3.2)
+    orders.album_numbers = album_numbers              # task 3.2
     if not owner.owner:
         log.warning("OWNER_PHONE is not set in .env: albums can't be sent to you for "
                     "approval. See docs/setup/3.1-owner-approval.md")

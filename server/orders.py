@@ -23,12 +23,24 @@ is saved here (owner_asked, owner_decided). It is kept in the order's notes
 ("owner_check", "owner_token:<code>", "approved", "owner_problem"), so no
 database change was needed.
 
+Task 3.2: when the customer has sent a shipping address, on_payment(phone,
+order_id) is called, so owner_approval.py can ask the owner to send a Bit
+payment request by hand. The owner's "payment received" is owner_paid().
+The address, the price and the time of payment are saved in the order's own
+columns (shipping_address, price, paid_at; supabase/3.2-address-and-payment.sql),
+and its status becomes "approved", then "paid".
+To check a photo number the customer types, album_numbers(order_id) (set by
+bot.py) gives the numbers of the photos inside the album. A question after
+"עזרה" goes to on_help(phone, order_id, text).
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
+import copy
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 
 import conversation
 from database import DatabaseError
@@ -55,6 +67,10 @@ HD_MIN_KNOWN = 3
 # WhatsApp without HD sends photos exactly this long on the long side
 # (album/quality.py WITHOUT_HD_PIXELS, measured Nov 2026).
 WITHOUT_HD_PIXELS = 2048
+# At most this many new albums per phone number per day (CLAUDE.md rule 11: a
+# finished album is kept when the customer starts over, so its photos stay in
+# storage; without a limit one person could fill the free 1 GB).
+MAX_NEW_ALBUMS_PER_DAY = 3
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
@@ -83,6 +99,10 @@ class Orders:
         self._sizes = {}   # order_id -> {photo number: long side in pixels}
         self.on_approval = None        # on_approval(phone, order_id): ask the owner (task 3.1)
         self.on_customer_text = None   # on_customer_text(phone, order_id, text): tell the owner
+        self.on_payment = None   # on_payment(phone, order_id): ask the owner to collect (3.2)
+        self.on_help = None      # on_help(phone, order_id, text): a "עזרה" question (3.2)
+        # album_numbers(order_id) -> the numbers of the photos inside the album, or None
+        self.album_numbers = None
 
     def lock_for(self, phone):
         with self._guard:
@@ -99,17 +119,35 @@ class Orders:
         state = self._load(phone)
         old_order, old_step = state["order_id"], state["step"]
         # Changing something from the summary: the album was already finished.
-        was_finished = old_step == "done" or "editing" in state["notes"]
+        was_finished = old_step in conversation.FINISHED_STEPS or "editing" in state["notes"]
         count_before = state["photos"]
 
         last = self._last_photo.get(phone)
         state["recent_photo"] = last is not None and time.monotonic() - last < QUIET_SECONDS
+        if state["step"] == "photo_number" and self.album_numbers:
+            # The customer is typing a photo's number: check it against the album.
+            state["album_numbers"] = self.album_numbers(state["order_id"])
+        before = copy.deepcopy(state)
         try:
             replies = conversation.answer(state, kind, value, texts)
         finally:
             state.pop("recent_photo", None)
+            state.pop("album_numbers", None)
         if kind == "photo":
             self._last_photo[phone] = time.monotonic()
+
+        asked = "confirm_restart" in state["notes"] and "confirm_restart" not in before["notes"]
+        if ("order_id" not in state or asked) and \
+                self._albums_today(phone) >= MAX_NEW_ALBUMS_PER_DAY:
+            # A new album (or the "are you sure?" before one), but they already
+            # started the most albums for today: nothing changes.
+            before.pop("recent_photo", None)
+            before.pop("album_numbers", None)
+            before["notes"] = [n for n in before["notes"] if n != "confirm_restart"]
+            self._states[phone] = before
+            log.info("Order %s: the customer reached today's new-album limit",
+                     short(before["order_id"]))
+            return [{"text": texts["new_album_limit"].format(max=MAX_NEW_ALBUMS_PER_DAY)}], None
 
         if "order_id" not in state:
             # "אלבום חדש": answer() started a fresh state, so open a new order.
@@ -156,6 +194,15 @@ class Orders:
             else:
                 log.warning("Order %s: the customer loved it, but no owner approval is set up",
                             short(state["order_id"]))
+        if state.pop("ask_payment", False):
+            if self.on_payment:
+                self.on_payment(phone, state["order_id"])
+            else:
+                log.warning("Order %s is waiting for payment, but no owner is set up",
+                            short(state["order_id"]))
+        question = state.pop("help_for_owner", None)   # "עזרה" (task 3.2)
+        if question and self.on_help:
+            self.on_help(phone, state["order_id"], question)
         text = state.pop("for_owner", None)
         if text and self.on_customer_text:
             self.on_customer_text(phone, state["order_id"], text)
@@ -373,11 +420,39 @@ class Orders:
             if decision == "approved":
                 state["notes"][:] = [n for n in state["notes"]
                                      if n not in ("owner_check", "owner_problem")]
+                conversation.owner_approved(state)   # next: the shipping address (3.2)
             elif "owner_problem" in state["notes"]:
                 return "ok"
             state["notes"].append(decision)
             self._save(state)
             return "ok"
+
+    # ---------- payment (task 3.2) ----------
+
+    def owner_paid(self, phone, order_id):
+        """The owner tapped "payment received". Returns "ok", "already" (paid
+        before), or "old" (not this customer's current order, or not waiting)."""
+        with self.lock_for(phone):
+            state = self._current(phone, order_id)
+            if not state:
+                return "old"
+            if state["step"] == "paid":
+                return "already"
+            if state["step"] != "payment":
+                return "old"
+            conversation.owner_paid(state)
+            self._save(state)
+            try:
+                self.db.update_order(order_id, {"paid_at": datetime.now(timezone.utc).isoformat()})
+            except DatabaseError as error:
+                log.error("Could not save the payment time of %s: %s", short(order_id), error)
+            return "ok"
+
+    def waiting_for_payment(self):
+        """Orders whose customer sent an address and waits for a Bit request:
+        [(phone, order_id)], oldest first."""
+        rows = self.db.orders_with_note("payment_wait")
+        return [(row["phone"], row["id"]) for row in rows if row["status"] != "cancelled"]
 
     def waiting_for_owner(self):
         """Orders waiting for the owner: [(phone, order_id)], oldest first."""
@@ -420,6 +495,9 @@ class Orders:
                     "photos": row["photo_count"], "title": row["title"],
                     "notes": list(row["notes"] or []),
                 }
+                for field, column in (("address", "shipping_address"), ("price", "price")):
+                    if row.get(column) is not None:
+                        self._states[phone][field] = row[column]
                 if "done_waiting" in self._states[phone]["notes"]:
                     # The bot restarted while waiting for the last photos: don't wait again.
                     self._states[phone]["notes"].remove("done_waiting")
@@ -428,6 +506,17 @@ class Orders:
                 state["order_id"] = self._new_order(phone, state)
                 self._states[phone] = state
         return self._states[phone]
+
+    def _albums_today(self, phone):
+        """How many albums this phone number started today (Israel's day, as
+        set on the Mac). 0 if Supabase can't tell: never block on an error."""
+        midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0,
+                                                       microsecond=0)
+        try:
+            return self.db.orders_since(phone, midnight.isoformat())
+        except (DatabaseError, AttributeError) as error:
+            log.warning("Could not count today's albums: %s", error)
+            return 0
 
     def _new_order(self, phone, state):
         order_id = self.db.create_order(phone, _fields(state))["id"]
@@ -461,16 +550,31 @@ def _token(state):
     return None
 
 
+def _status(step):
+    if step == "paid":
+        return "paid"
+    if step in conversation.AFTER_APPROVAL:
+        return "approved"   # the owner approved it: address and payment
+    return "ready" if step == "done" else "collecting"
+
+
 def _fields(state):
     """The order's columns in Supabase, from the conversation state."""
-    return {
+    fields = {
         "step": state["step"],
-        "status": "ready" if state["step"] == "done" else "collecting",
+        "status": _status(state["step"]),
         "design": state["design"],
         "title": state["title"],
         "photo_count": state["photos"],
         "notes": state["notes"],
     }
+    # Task 3.2. Only once there is one, so the bot keeps working even before
+    # the new columns were added (supabase/3.2-address-and-payment.sql).
+    if state.get("address"):
+        fields["shipping_address"] = state["address"]
+    if state.get("price"):
+        fields["price"] = state["price"]
+    return fields
 
 
 def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_size=None):

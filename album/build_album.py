@@ -68,12 +68,17 @@ def left_out_reason(result):
     return "blurry"
 
 
-def build(photos, design, title, folder, cover=None, cover_kept=False):
+def build(photos, design, title, folder, cover=None, cover_kept=False, replaced=None):
     """Check, plan and draw an album. photos is a list of (name, bytes).
-    cover_kept: the customer was told the cover photo is blurry or small and kept it."""
+    cover_kept: the customer was told the cover photo is blurry or small and kept it.
+    replaced: {old photo name: new photo name}, photos the customer replaced
+    (task 3.2): if nothing else changed, each new photo takes its old photo's
+    spot and the rest of the album stays as it was."""
     results = quality.check_all(photos)
     info = summary(results)
     album = layout.make_album(results, design, title, cover, cover_kept)
+    if replaced:
+        album = layout.keep_places(_old_album(folder), album, replaced, results)
     box = render.PhotoBox(photos)
     folder.mkdir(parents=True, exist_ok=True)
     for old in [*folder.glob("*.jpg"), *folder.glob("print-*.pdf")]:
@@ -88,7 +93,8 @@ def build(photos, design, title, folder, cover=None, cover_kept=False):
     (folder / "layout.json").write_text(
         json.dumps(album.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
     _write_overview(folder, album, files, results, photos)
-    previews = preview.make_previews(folder, len(album.pages))
+    previews = preview.make_previews(folder, len(album.pages), album=album,
+                                     numbers=photo_numbers(photos))
     in_album = {s.photo for page in [album.cover] + album.pages for s in page.spots if s.photo}
     # For the customer's preview page (task 1.2b): photos per page, full pages.
     on_pages = sum(1 for page in album.pages for s in page.spots if s.photo)
@@ -97,6 +103,24 @@ def build(photos, design, title, folder, cover=None, cover_kept=False):
                 photos_on_pages=on_pages,
                 full_pages=sum(page.template == "full" for page in album.pages))
     return info
+
+
+def _old_album(folder):
+    """The album as it was last built (its layout.json), or None."""
+    try:
+        data = json.loads((folder / "layout.json").read_text(encoding="utf-8"))
+        return layout.Album.from_dict(data)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def photo_numbers(photos):
+    """Each photo's number for the previews (task 3.2): from an order, the
+    number it was sent as ("photo 015" -> 15); from a folder, 1, 2, 3… in order."""
+    numbers = {}
+    for index, (name, _) in enumerate(photos, start=1):
+        numbers[name] = preview.photo_number(name) or index
+    return numbers
 
 
 def _save(image, path):
@@ -192,6 +216,28 @@ def order_photos(which):
     return order, photos
 
 
+def changed_photos(order, photos):
+    """Task 3.2: the customer's photo changes, from the order's notes:
+    "removed:N" (photo N is left out) and "replaced:N:M" (photo M takes photo
+    N's place). Returns (the photos in album order, {old name: new name})."""
+    photos = list(photos)
+    names = [name for name, _ in photos]
+    replaced = {}
+    notes = [str(n) for n in order.get("notes") or []]
+    for note in notes:
+        if note.startswith("replaced:"):
+            old, new = (f"photo {int(n):03d}" for n in note.split(":")[1:3])
+            if old in names and new in names:   # (the new photo may have failed to save)
+                replaced[old] = new
+                # The new photo goes where the old one was, in the album's order.
+                entry = photos.pop(names.index(new))
+                names.remove(new)
+                index = names.index(old)
+                photos[index], names[index] = entry, new
+    removed = {f"photo {int(n.split(':')[1]):03d}" for n in notes if n.startswith("removed:")}
+    return [p for p in photos if p[0] not in removed], replaced
+
+
 def _chosen_cover(order):
     """The photo the customer sent for the cover (kept in the order's notes
     as "cover_photo:N" by the bot), named like the photos from the order."""
@@ -222,6 +268,7 @@ def main():
         folder = OUTPUT_DIR / order["id"][:8]
         cover = options["--cover"] or _chosen_cover(order)
         cover_kept = "cover_kept" in (order.get("notes") or []) and not options["--cover"]
+        photos, replaced = changed_photos(order, photos)
     elif len(rest) == 1 and not rest[0].startswith("--"):
         photos = photos_from_folder(rest[0])
         design = options["--design"] or "classic"
@@ -229,6 +276,7 @@ def main():
         folder = OUTPUT_DIR / Path(rest[0]).expanduser().name
         cover = options["--cover"]
         cover_kept = False
+        replaced = None
     else:
         sys.exit(__doc__)
     if design not in designs.DESIGNS:
@@ -239,7 +287,7 @@ def main():
     else:
         print(f"Building a {design} album from {len(photos)} photos…", file=sys.stderr)
         try:
-            info = build(photos, design, title, folder, cover, cover_kept)
+            info = build(photos, design, title, folder, cover, cover_kept, replaced)
         except ValueError as error:   # e.g. no usable photos
             info = dict(summary(quality.check_all(photos)), error=str(error))
 

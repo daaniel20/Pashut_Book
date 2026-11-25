@@ -132,6 +132,77 @@ class OwnerApprovalTest(unittest.TestCase):
         self.assertIn("כבר אושר", self.to(OWNER)[-1]["text"])
         self.assertEqual(len(self.to(CUSTOMER)), 1)
 
+    def test_address_payment_and_paid(self):
+        """Task 3.2: approve -> the customer's address -> a Bit request by the
+        owner -> "payment received" -> the customer hears it goes to print."""
+        self.orders.on_payment = self.approvals.send_payment_request
+        buttons = self.love_it()
+        self.owner("button", buttons[0]["id"])
+        self.assertIn("לאן לשלוח", self.to(CUSTOMER)[-1]["text"])
+        row = self.db.orders[0]
+        self.assertEqual((row["step"], row["status"]), ("address", "approved"))
+        self.customer("text", "דנה כהן, הרצל 5, תל אביב, 0501112222")
+        self.customer("button", "address_ok")
+        self.assertEqual(row["shipping_address"], "דנה כהן, הרצל 5, תל אביב, 0501112222")
+        self.assertEqual(row["price"], 180)
+        request = self.to(OWNER)[-1]
+        self.assertIn("050-000-0000", request["text"])   # the full number, for Bit
+        self.assertIn("₪180", request["text"])
+        self.assertIn("הרצל 5", request["text"])
+        paid = request["buttons"][0]["id"]
+        self.assertEqual(paid, f"owner_paid:{ORDER}")
+
+        # "אישורים" sends it again (e.g. after the 24-hour window closed).
+        self.owner("text", "אישורים")
+        self.assertEqual(self.to(OWNER)[-1]["buttons"][0]["id"], paid)
+
+        self.owner("button", paid)
+        self.assertIn("התשלום התקבל", self.to(CUSTOMER)[-1]["text"])
+        self.assertIn("נרשם", self.to(OWNER)[-1]["text"])
+        self.assertEqual((row["step"], row["status"]), ("paid", "paid"))
+        self.assertIn("paid_at", row)
+        self.owner("button", paid)                       # tapped twice
+        self.assertIn("כבר נרשם", self.to(OWNER)[-1]["text"])
+
+        # After a bot restart, the address and price are still known.
+        again = orders.Orders(self.db)
+        self.assertEqual(again.info(CUSTOMER, ORDER)["address"], row["shipping_address"])
+
+        # Starting a new album keeps the paid one (it isn't cancelled).
+        self.customer("text", "אלבום חדש")
+        self.customer("button", "restart_yes")
+        self.assertEqual(row["status"], "paid")
+
+    def test_the_owner_sees_the_customers_photo_changes(self):
+        self.db.orders[0]["notes"] += ["removed:4", "replaced:9:51"]
+        self.love_it()
+        self.assertIn("🗑️ 4, 📷 9→51", self.to(OWNER)[0]["text"])
+
+    def test_the_photo_number_is_checked_against_the_album(self):
+        self.orders.album_numbers = lambda order_id: {7, 8}
+        self.customer("button", "edit_photo")
+        self.assertIn("לא מצאנו", self.customer("text", "5")[0]["text"])
+        self.customer("text", "7")
+        self.assertEqual(self.db.orders[0]["step"], "photo_action")
+        self.assertIn("photo_pick:7", self.db.orders[0]["notes"])
+
+    def test_help_question_and_answer(self):
+        self.orders.on_help = self.approvals.send_help
+        self.customer("text", "עזרה")
+        self.customer("text", "מתי האלבום יגיע?")
+        request = self.to(OWNER)[-1]
+        self.assertIn("מתי האלבום יגיע?", request["text"])
+        self.assertEqual(request["buttons"][0]["id"], f"owner_help:{ORDER}")
+        self.owner("button", request["buttons"][0]["id"])
+        self.assertTrue(self.owner("text", "בעוד שבוע 🙂"))
+        answer = self.to(CUSTOMER)[-1]
+        self.assertIn("בעוד שבוע", answer["text"])
+        self.assertNotIn("buttons", answer)          # a help answer has no buttons
+
+    def test_local_number(self):
+        self.assertEqual(owner_approval.local_number("972501234567"), "050-123-4567")
+        self.assertEqual(owner_approval.local_number("447700900123"), "+447700900123")
+
     def test_an_old_request_after_a_change_does_nothing(self):
         buttons = self.love_it()
         self.customer("button", "edit_title")

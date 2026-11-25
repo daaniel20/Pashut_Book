@@ -309,6 +309,79 @@ class CoverTest(unittest.TestCase):
 
 
 @unittest.skipIf(Image is None, "Pillow is not installed")
+class ReplaceTest(unittest.TestCase):
+    """Task 3.2: the customer replaces or removes a photo by its number."""
+
+    def setUp(self):
+        self.photos = fake_photos(50)
+        self.old = layout.make_album(self.photos, "classic")
+        inside = placed(self.old)
+        self.gone = inside[len(inside) // 2]       # the photo being replaced
+        self.new = SimpleNamespace(name="051", width=3000, height=4000, grade="ok")
+
+    def plan(self, photos, title=None):
+        return layout.make_album(photos, "classic", title)
+
+    def test_a_replaced_photo_takes_the_same_spot(self):
+        photos = [self.new if p.name == self.gone else p for p in self.photos]
+        page_before = next(i for i, page in enumerate(self.old.pages)
+                           if self.gone in [s.photo for s in page.spots])
+        others = [s.photo for page in self.old.pages for s in page.spots if s.photo != self.gone]
+        album = layout.keep_places(self.old, self.plan(photos), {self.gone: "051"},
+                                   photos + [self.new])
+        self.assertIs(album, self.old)
+        self.assertIn("051", [s.photo for s in album.pages[page_before].spots])
+        self.assertNotIn(self.gone, placed(album))
+        # Every other photo stays exactly where it was.
+        self.assertEqual([s.photo for page in album.pages for s in page.spots
+                          if s.photo != "051"], others)
+        for page in album.pages:
+            for spot in page.spots:
+                self.assertLessEqual(spot.x + spot.width, designs.PAGE_WIDTH + 0.01)
+
+    def test_a_photo_of_another_shape_lays_out_only_its_page_again(self):
+        # A wide phone photo (16:9) instead of a photo in an upright spot: cut
+        # to that spot it would lose too much, so its page is laid out again.
+        index, target = next((i, s) for i, page in enumerate(self.old.pages)
+                             if page.template != "full" for s in page.spots
+                             if s.height > s.width * 1.2)
+        gone = target.photo
+        wide = SimpleNamespace(name="051", width=4032, height=2268, grade="ok")
+        photos = [wide if p.name == gone else p for p in self.photos]
+        before = [[(s.photo, s.x, s.y) for s in page.spots] for page in self.old.pages]
+        album = layout.keep_places(self.old, self.plan(photos), {gone: "051"},
+                                   photos + [wide])
+        after = [[(s.photo, s.x, s.y) for s in page.spots] for page in album.pages]
+        for i, (a, b) in enumerate(zip(before, after)):
+            if i != index:
+                self.assertEqual(a, b)          # every other page is untouched
+        spot = next(s for s in album.pages[index].spots if s.photo == "051")
+        # In the page's new layout the photo keeps its wide shape and isn't small.
+        self.assertGreater(spot.width / spot.height, 1.5)
+        self.assertGreater(spot.width, target.width)
+
+    def test_other_changes_plan_the_album_again(self):
+        photos = [self.new if p.name == self.gone else p for p in self.photos][:-1]
+        new = self.plan(photos)
+        self.assertIs(layout.keep_places(self.old, new, {self.gone: "051"}, photos), new)
+        photos = [self.new if p.name == self.gone else p for p in self.photos]
+        new = self.plan(photos, title="סבתא")
+        self.assertIs(layout.keep_places(self.old, new, {self.gone: "051"}, photos), new)
+        self.assertIs(layout.keep_places(None, new, {self.gone: "051"}, photos), new)
+
+    def test_the_order_notes_decide_the_photos(self):
+        if Image is None:
+            self.skipTest("Pillow is not installed")
+        photos = [(f"photo {n:03d}", b"") for n in range(1, 8)]
+        order = {"notes": ["previews_sent", "replaced:3:7", "removed:5"]}
+        kept, replaced = build_album.changed_photos(order, photos)
+        self.assertEqual([name for name, _ in kept],
+                         ["photo 001", "photo 002", "photo 007", "photo 004", "photo 006"])
+        self.assertEqual(replaced, {"photo 003": "photo 007"})
+        self.assertEqual(build_album.photo_numbers(kept)["photo 007"], 7)
+        self.assertEqual(build_album.photo_numbers([("IMG_9.jpg", b"")]), {"IMG_9.jpg": 1})
+
+
 class DrawingTest(unittest.TestCase):
     def test_hebrew_title_order(self):
         self.assertEqual(render.visual_order("החופשה באילת 2026"), "2026 תליאב השפוחה")

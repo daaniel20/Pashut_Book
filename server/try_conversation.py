@@ -8,6 +8,11 @@ Type like a customer. Special commands:
   /photo small   a cover photo that is too small (without HD)
   /photo blurry  a blurry cover photo
   /video      send a video
+  /previews   the album is built and its preview link was sent (task 2.4)
+  /approve    the owner approves the album (then the address, task 3.2)
+  /paid       the owner taps "payment received"
+  (When the bot asks for a photo's number, a typed number is the number,
+  not a button.)
   /wait       a minute passes with no new photo (the bot then sends the photo
               count with the "done" button, as it does after real photos stop)
   /wait nohd  the same, but the photos came without HD (the count asks to resend)
@@ -68,9 +73,18 @@ while True:
                 show(conversation.cover_checked(state, number, COVER_RESULTS[cover], texts))
     elif typed.startswith("/wait"):
         show(conversation.photos_settled(state, texts, without_hd=typed.endswith("nohd")))
+    elif typed == "/previews":
+        state["notes"].append("previews_sent")
+        show([conversation.after_previews(texts)])
+    elif typed == "/approve":
+        conversation.owner_approved(state)
+        show([{"text": texts["owner_approved_customer"]}])
+    elif typed == "/paid":
+        conversation.owner_paid(state)
+        show([{"text": texts["paid_customer"]}])
     elif typed == "/video":
         show(conversation.answer(state, "other", "video", texts))
-    elif typed.isdigit() and 1 <= int(typed) <= len(buttons):
+    elif typed.isdigit() and 1 <= int(typed) <= len(buttons) and state["step"] != "photo_number":
         show(conversation.answer(state, "button", buttons[int(typed) - 1]["id"], texts))
     else:
         show(conversation.answer(state, "text", typed, texts))

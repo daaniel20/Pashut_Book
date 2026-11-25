@@ -61,6 +61,34 @@ The steps, in order:
   answer adds "approved" or "owner_problem". From "love it" on, anything the
   customer types is passed to the owner (state["for_owner"]). Any change to the
   album clears all of these: the album is built again and needs a new approval.
+  Photo changes (task 3.2): once the previews were sent, the "change something"
+  list also has "replace or remove a photo". Every photo in the preview has a
+  small number (the order it was sent in):
+  photo_number  -> "which photo?" The customer types the number. orders.py puts
+                   the album's numbers in state["album_numbers"] to check it.
+  photo_action  -> [replace] [remove] [keep as it was]
+  photo_replace -> waiting for the new photo. It takes the old one's spot.
+  The changes are notes: "removed:N", "replaced:N:M" (photo M instead of N);
+  album/build_album.py reads them.
+  After the owner approves (task 3.2):
+  address       -> waiting for the shipping address (one typed message)
+  address_check -> "we'll send it to: …, correct?" [correct] [fix]
+  payment       -> waiting for the payment (state["ask_payment"] tells orders.py
+                   to ask the owner to send a Bit request by hand)
+  paid          -> the owner tapped "payment received": the album goes to print.
+  From "address" on, the album can't be changed by the customer any more:
+  "change something" asks them to write what they want, for the owner.
+  Limits (CLAUDE.md rules 11 and 12): each kind of change from the list (title,
+  design, cover photo, adding photos, replacing/removing a photo) at most
+  MAX_CHANGES times per album (notes "used:<kind>:N", counted when the change is
+  made; "no change" costs nothing); sending another cover photo after the check
+  said no, MAX_CHANGES times; messages passed to the owner, MAX_OWNER_MESSAGES a
+  day (note "owner_msgs:<date>:N", help included). New albums a day: orders.py.
+  Help (task 3.2, decided in 1.2b): typing "עזרה" at any step -> "write your
+  question" (note "help_wait") -> their next TEXT goes to the owner
+  (state["help_for_owner"]; photos never do), cut at HELP_MAX_LETTERS. Once a
+  day per customer (note "help_day:<date>"): a second "עזרה" that day only
+  hears "we got your earlier message". Tapping a button instead cancels it.
 
 This file only decides WHAT to answer. It doesn't talk to WhatsApp itself
 (bot.py does that), so it can be tested on any computer with no internet.
@@ -74,9 +102,11 @@ All customer-facing words come from server/texts/<language>.json.
 Photos are only COUNTED here. Saving them is in orders.py (task 1.3).
 """
 
+import re
 import unicodedata
+from datetime import date
 
-from settings import MEDIA_DIR
+from settings import MEDIA_DIR, prices
 
 # The two album designs. Their names for the customer are in the texts file
 # ("design_classic", "design_colorful").
@@ -93,6 +123,24 @@ HD_VIDEO = MEDIA_DIR / "hd-how-to-iphone.mp4"
 # built again, sent again, and needs the owner's approval again).
 ALBUM_NOTES = ("previews_sent", "after_previews", "preview_ok", "after_done",
                "owner_check", "owner_problem", "approved")
+# Limits (CLAUDE.md rule 11, owner's decision Nov 25, 2026): each kind of
+# change at most this many times per album (the README's "limited number of
+# simple changes"), so nobody can keep the Mac busy rebuilding albums.
+MAX_CHANGES = 5
+# Messages passed to the owner (after "love it", while paying, "עזרה"): at most
+# this many a day per customer (CLAUDE.md rule 12: avoid sending customers to a human).
+MAX_OWNER_MESSAGES = 3
+# The steps after the owner approved the album (task 3.2): it's finished.
+AFTER_APPROVAL = ("address", "address_check", "payment", "paid")
+# Steps of an album that is already finished (starting over keeps it).
+FINISHED_STEPS = ("done",) + AFTER_APPROVAL
+# The buttons that change the album (from the "change something" list).
+EDIT_BUTTONS = ("edit_menu", "edit_title", "edit_design", "edit_cover", "add_photos",
+                "edit_photo")
+# Help (task 3.2): the customer's question to the owner is cut at this length.
+HELP_MAX_LETTERS = 500
+# The shortest and longest shipping address we accept (letters).
+MIN_ADDRESS, MAX_ADDRESS = 10, 300
 # Unicode kinds of characters the album can't print: emojis and other symbols
 # (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
 _NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
@@ -134,10 +182,82 @@ def answer(state, kind, value, texts):
         # WhatsApp sends this e.g. for the "album" bundle of many photos sent
         # together; the photos themselves arrive one by one. Nothing to answer.
         return []
+    help_answer = _help(state, kind, value, words, t)
+    if help_answer is not None:
+        return help_answer
     restart = _restart(state, kind, value, words, t)
     if restart is not None:
         return restart
     return [with_restart(state, m, t) for m in _answer(state, kind, value, words, t)]
+
+
+def _today():
+    return date.today().isoformat()
+
+
+def _help(state, kind, value, words, t):
+    """ "עזרה": the customer's next typed message goes to the owner, once a day.
+    Returns the messages, or None if this message isn't about help."""
+    waiting = "help_wait" in state["notes"]
+    if kind == "text" and words in _word_list(t, "help_words"):
+        if _note(state, "help_day") == _today():
+            return [_text(t["help_already"])]   # one help message a day
+        if not waiting:
+            state["notes"].append("help_wait")
+        return [_text(t["help_ask"])]
+    if not waiting or kind == "photo":
+        return None   # photos go on as usual (they never go to the owner)
+    state["notes"].remove("help_wait")
+    if kind != "text" or not words or words in _word_list(t, "restart_words"):
+        return None   # a button (or "new album"): help is cancelled, answer as usual
+    question = value.strip()
+    if len(question) > HELP_MAX_LETTERS:
+        question = question[:HELP_MAX_LETTERS] + "…"
+    _set_note(state, "help_day", _today())
+    if not _to_owner(state, "help_for_owner", question):
+        return [_text(t["owner_limit"])]
+    return [_text(t["help_sent"])]
+
+
+def _to_owner(state, key, text):
+    """Pass a message to the owner (orders.py sees state[key]), unless this
+    customer already sent MAX_OWNER_MESSAGES today. Returns True if passed on."""
+    day, _, sent = (_note(state, "owner_msgs") or "::").partition(":")
+    sent = int(sent) if day == _today() and sent.isdigit() else 0
+    if sent >= MAX_OWNER_MESSAGES:
+        return False
+    _set_note(state, "owner_msgs", f"{_today()}:{sent + 1}")
+    state[key] = text
+    return True
+
+
+def _passed_on(state, text, t, more=()):
+    """The customer's text for the owner: "sent to the team", or, over the
+    daily limit, "we got your messages" (and nothing is passed on)."""
+    if _to_owner(state, "for_owner", text.strip()):
+        return [_text(t["sent_to_team"])] + list(more)
+    return [_text(t["owner_limit"])] + list(more)
+
+
+def _used(state, kind):
+    """How many times this kind of change was made in this album."""
+    used = _note(state, "used_" + kind)
+    return int(used) if used and used.isdigit() else 0
+
+
+def _use(state, kind):
+    _set_note(state, "used_" + kind, _used(state, kind) + 1)
+
+
+def _over_limit(state, kind, t):
+    """The "you reached the limit" answer if this kind of change was already
+    made MAX_CHANGES times in this album, else None."""
+    if _used(state, kind) < MAX_CHANGES:
+        return None
+    text = t["change_limit"].format(what=t["limit_what_" + kind], max=MAX_CHANGES)
+    if "previews_sent" in state["notes"]:
+        return [dict(after_previews(t), text=text)]
+    return [_text(text)]
 
 
 def _answer(state, kind, value, words, t):
@@ -187,6 +307,9 @@ def _answer(state, kind, value, words, t):
     if step == "cover_problem":
         if _tapped(kind, value, words, "cover_new", t["button_cover_new"]) or \
                 _tapped(kind, value, words, "cover_new", t["button_cover_new_hd"]):
+            if _used(state, "cover_resend") >= MAX_CHANGES:
+                return _cover_resend_limit(state, t)
+            _use(state, "cover_resend")
             state["step"] = "cover_photo"
             _set_note(state, "cover_check", None)
             _set_note(state, "cover_problem", None)
@@ -276,25 +399,36 @@ def _answer(state, kind, value, words, t):
             return [_hd_how_to(t, state)]
         return [_hd_question_for(state, t)]
 
+    if step in ("photo_number", "photo_action", "photo_replace"):
+        return _photo_change(state, kind, value, words, t)
+
+    if step in AFTER_APPROVAL:
+        return _after_approval(state, kind, value, words, t)
+
     # step == "done"
-    if (kind == "button" and value == "edit_title") or words == _clean(t["button_edit_title"]):
-        state["step"] = "title"
-        _start_change(state)
-        return [_title_request(t, editing=True)]
-    if (kind == "button" and value == "edit_design") or words == _clean(t["button_edit_design"]):
-        state["step"] = "design"
-        _start_change(state)
-        return [_design_buttons(t, t["choose_design"], editing=True)]
-    if (kind == "button" and value == "edit_cover") or words == _clean(t["button_edit_cover"]):
-        state["step"] = "cover_photo"
-        _start_change(state)
-        return [_keep_cover_button(t, t["ask_new_cover_photo"])]
+    changes = (
+        ("edit_photo", "photo", "photo_number",
+         lambda: [_keep_photo_button(t, t["ask_photo_number"])]),
+        ("edit_title", "title", "title", lambda: [_title_request(t, editing=True)]),
+        ("edit_design", "design", "design",
+         lambda: [_design_buttons(t, t["choose_design"], editing=True)]),
+        ("edit_cover", "cover", "cover_photo",
+         lambda: [_keep_cover_button(t, t["ask_new_cover_photo"])]),
+    )
+    for button, change, next_step, question in changes:
+        if (kind == "button" and value == button) or words == _clean(t["button_" + button]):
+            limit = _over_limit(state, change, t)
+            if limit:
+                return limit
+            state["step"] = next_step
+            _start_change(state, change)
+            return question()
     if _tapped(kind, value, words, "add_photos", t["button_add_photos"]):
-        return _back_to_photos(state, t)
+        return _over_limit(state, "photos", t) or _back_to_photos(state, t)
     if _tapped(kind, value, words, "no_change", t["button_no_change"]):
         return _no_change(state, t)   # from the list: nothing to change after all
     if _tapped(kind, value, words, "edit_menu", t["button_edit"]):
-        return [_edit_list(t, t["choose_edit"])]
+        return [_edit_list(t, t["choose_edit"], state)]
     if _tapped(kind, value, words, "confirm", t["button_confirm"]):
         if "previews_sent" in state["notes"]:
             # The old summary button, tapped after the previews: same as "love it".
@@ -307,9 +441,150 @@ def _answer(state, kind, value, words, t):
         return _loved(state, t)
     if kind == "text" and words and "preview_ok" in state["notes"]:
         # After "love it", the owner is in the loop (task 3.1): pass it on.
-        state["for_owner"] = value.strip()
-        return [_text(t["sent_to_team"])]
+        return _passed_on(state, value, t)
     return _after_done(state, t)
+
+
+# ---------- replacing or removing a photo by its number (task 3.2) ----------
+
+def photo_changes(state):
+    """The photo changes so far: ["removed:15", "replaced:20:57", …]."""
+    return [n for n in state["notes"] if n.startswith(("removed:", "replaced:"))]
+
+
+def album_photo_count(state):
+    """How many photos the album holds: sent, minus removed and replaced ones."""
+    return state["photos"] - len(photo_changes(state))
+
+
+def _photo_change(state, kind, value, words, t):
+    step = state["step"]
+    number = _note(state, "photo_pick")
+    if step == "photo_number":
+        if kind != "text" or not words:
+            return [_keep_photo_button(t, t["ask_photo_number"])]
+        found = re.findall(r"\d+", value)
+        if len(found) != 1:
+            return [_keep_photo_button(t, t["photo_number_missing"])]
+        number = int(found[0])
+        if number not in _album_numbers(state):
+            return [_keep_photo_button(t, t["photo_number_unknown"].format(number=number))]
+        _set_note(state, "photo_pick", number)
+        state["step"] = "photo_action"
+        return [_photo_action_buttons(t, number)]
+    if step == "photo_action":
+        if _tapped(kind, value, words, "photo_remove", t["button_photo_remove"]):
+            state["notes"].append(f"removed:{number}")
+            _set_note(state, "photo_pick", None)
+            return [_text(t["photo_removed"].format(number=number))] + _finish(state, t)
+        if _tapped(kind, value, words, "photo_replace", t["button_photo_replace"]):
+            state["step"] = "photo_replace"
+            return [_keep_photo_button(t, t["ask_replacement"].format(number=number))]
+        return [_photo_action_buttons(t, number)]
+    # step == "photo_replace": waiting for the new photo
+    return [_keep_photo_button(t, t["ask_replacement"].format(number=number))]
+
+
+def _photo_replaced(state, t):
+    """The new photo for photo N arrived: it takes N's place in the album."""
+    number = _note(state, "photo_pick")
+    state["photos"] += 1
+    state["notes"].append(f"replaced:{number}:{state['photos']}")
+    _set_note(state, "photo_pick", None)
+    return [_text(t["photo_replaced"].format(number=number))] + _finish(state, t)
+
+
+def _album_numbers(state):
+    """The numbers of the photos inside the album (not the cover). orders.py
+    reads them from the album (state["album_numbers"]); without it, any photo
+    sent that wasn't removed or replaced."""
+    if state.get("album_numbers") is not None:
+        return set(state["album_numbers"])
+    gone = {int(n.split(":")[1]) for n in photo_changes(state)}
+    return set(range(1, state["photos"] + 1)) - gone - {cover_photo(state)}
+
+
+def _photo_action_buttons(t, number):
+    return {"text": t["photo_action"].format(number=number), "buttons": [
+        {"id": "photo_replace", "title": t["button_photo_replace"]},
+        {"id": "photo_remove", "title": t["button_photo_remove"]},
+        _no_change_button(t),
+    ]}
+
+
+def _keep_photo_button(t, text):
+    return {"text": text, "buttons": [_no_change_button(t)]}
+
+
+# ---------- after the owner approved: address and payment (task 3.2) ----------
+
+def owner_approved(state):
+    """The owner approved the album (called by orders.py): ask for the address.
+    The customer's message is owner_approved_customer in the texts."""
+    state["step"] = "address"
+
+
+def owner_paid(state):
+    """The owner tapped "payment received" (called by orders.py)."""
+    state["step"] = "paid"
+    while "payment_wait" in state["notes"]:
+        state["notes"].remove("payment_wait")
+    if "paid" not in state["notes"]:
+        state["notes"].append("paid")
+
+
+def payment_amounts():
+    """(album price, shipping, total) in shekels, from .env (PRICE, SHIPPING)."""
+    price, shipping = prices()
+    return price, shipping, price + shipping
+
+
+def _after_approval(state, kind, value, words, t):
+    step = state["step"]
+    if kind == "button" and value in EDIT_BUTTONS or \
+            (kind == "text" and words == _clean(t["button_edit"])):
+        # The album is approved: it can't be changed any more (only "עזרה").
+        return [_text(t["album_locked"])] + _step_prompt(state, t)
+    if step == "address":
+        if kind != "text" or not words:
+            return [_text(t["ask_address"])]
+        address = "\n".join(" ".join(line.split()) for line in value.strip().splitlines()
+                             if line.strip())
+        if len(address) < MIN_ADDRESS:
+            return [_text(t["address_too_short"])]
+        state["address"] = address[:MAX_ADDRESS]
+        state["step"] = "address_check"
+        return [_address_check(t, state)]
+    if step == "address_check":
+        if _tapped(kind, value, words, "address_ok", t["button_address_ok"]):
+            state["step"] = "payment"
+            state["notes"].append("payment_wait")
+            state["ask_payment"] = True   # orders.py asks the owner to send a Bit request
+            price, shipping, total = payment_amounts()
+            state["price"] = total
+            return [_text(t["payment"].format(price=price, shipping=shipping, total=total))]
+        if _tapped(kind, value, words, "address_fix", t["button_address_fix"]):
+            state["step"] = "address"
+            return [_text(t["ask_address"])]
+        if kind == "text" and words:
+            # They typed the address again instead of tapping: use the new one.
+            state["step"] = "address"
+            return _after_approval(state, kind, value, words, t)
+        return [_address_check(t, state)]
+    if kind == "text" and words:
+        # Waiting for the payment, or already paid: typed text goes to the owner
+        # (at most MAX_OWNER_MESSAGES a day).
+        return _passed_on(state, value, t)
+    if step == "payment":
+        return _once(state, "payment_told", [_text(t["payment_waiting"])])
+    return _once(state, "paid_told", [_text(t["after_paid"])])
+
+
+def _address_check(t, state):
+    return {"text": t["address_check"].format(address=state["address"]), "buttons": [
+        {"id": "address_ok", "title": t["button_address_ok"]},
+        {"id": "address_fix", "title": t["button_address_fix"]},
+    ]}
 
 
 def _loved(state, t):
@@ -407,6 +682,8 @@ def with_restart(state, message, t):
         return message
     if state["step"] == "design" and "editing" not in state["notes"]:
         return message
+    if state["step"] in AFTER_APPROVAL:
+        return message   # the album is approved: no "new album" button here
     return dict(message, buttons=buttons + [{"id": "restart", "title": t["button_restart"]}])
 
 
@@ -434,7 +711,7 @@ def _restart(state, kind, value, words, t):
         return _answer(state, "text", "", "", t)   # the welcome and the design buttons
     # Ask first: the photos would be deleted.
     state["notes"].append("confirm_restart")
-    finished = state["step"] == "done" or "editing" in state["notes"]
+    finished = state["step"] in FINISHED_STEPS or "editing" in state["notes"]
     text = t["restart_confirm_done"] if finished else \
         t["restart_confirm"].format(photos=_photos(t, state["photos"]))
     return [{"text": text, "buttons": [
@@ -464,6 +741,20 @@ def _step_prompt(state, t):
         return [_title_request(t, "editing" in state["notes"])]
     if step == "hd_question":
         return [_hd_question_for(state, t)]
+    if step == "photo_number":
+        return [_keep_photo_button(t, t["ask_photo_number"])]
+    if step == "photo_action":
+        return [_photo_action_buttons(t, _note(state, "photo_pick"))]
+    if step == "photo_replace":
+        return [_keep_photo_button(t, t["ask_replacement"].format(number=_note(state, "photo_pick")))]
+    if step == "address":
+        return [_text(t["ask_address"])]
+    if step == "address_check":
+        return [_address_check(t, state)]
+    if step == "payment":
+        return [_text(t["payment_waiting"])]
+    if step == "paid":
+        return [_text(t["after_paid"])]
     if "previews_sent" in state["notes"]:
         return [after_previews(t)]
     return [_summary(state, t)]
@@ -568,6 +859,12 @@ def _media(media):
 
 def _on_photo(state, t):
     step = state["step"]
+    if step == "photo_replace":
+        return _photo_replaced(state, t)
+    if step in AFTER_APPROVAL:
+        return _once(state, "photo_after_approval", [_text(t["photo_after_approval"])])
+    if step in ("photo_number", "photo_action"):
+        return [_text(t["photo_choose_first"])] + _step_prompt(state, t)
     if step == "hd_question":
         # They're already sending the photos again, in HD.
         _resend_photos(state)
@@ -582,6 +879,12 @@ def _on_photo(state, t):
         state["rebuild"] = True
         album_changed(state)
         return _once(state, "late_photos", [_text(t["late_photos"])])
+    if step == "cover_problem":
+        # A new photo instead of a tap on "send another": also a re-send.
+        if _used(state, "cover_resend") >= MAX_CHANGES:
+            messages = _cover_resend_limit(state, t)
+            return messages + _on_photo(state, t)   # this photo goes into the album
+        _use(state, "cover_resend")
     if step in ("cover_photo", "cover_problem"):
         # The cover photo is also an album photo. A new cover chosen from the
         # summary may go one over the limit; the old cover stays inside.
@@ -603,6 +906,12 @@ def _on_photo(state, t):
     # Customers send many photos; we stay quiet instead of answering each one.
     # Once they stop, photos_settled() sends the count with the "done" button.
     return []
+
+
+def _cover_resend_limit(state, t):
+    """Sent another cover photo MAX_CHANGES times: keep the one just checked."""
+    text = t["change_limit"].format(what=t["limit_what_cover_resend"], max=MAX_CHANGES)
+    return [_text(text)] + _cover_accepted(state, t, kept=True)
 
 
 def _cover_accepted(state, t, kept):
@@ -666,6 +975,8 @@ def _back_to_photos(state, t):
     message = _done_button(t, t["photos_so_far"].format(photos=_photos(t, state["photos"])))
     if from_summary:
         _set_note(state, "photos_at", state["photos"])   # "no change" = no new photos
+        if _note(state, "changing") is None:
+            _set_note(state, "changing", "photos")       # counted once photos are added
         message["buttons"].append(_no_change_button(t))
     return [message]
 
@@ -683,6 +994,8 @@ def _resend_photos(state):
     for note in ("photo_limit", "not_a_photo", "cover_kept", "hd_early", "video_untold"):
         if note in state["notes"]:
             state["notes"].remove(note)
+    for note in photo_changes(state):
+        state["notes"].remove(note)   # the old numbers are gone
 
 
 def _pick_design(kind, value, words, t):
@@ -718,6 +1031,10 @@ def _save_title(state, value, t):
 
 
 def _finish(state, t):
+    change = _note(state, "changing")
+    if change:
+        _use(state, change)   # a change from the list was made: it counts (limits)
+        _set_note(state, "changing", None)
     state["step"] = "done"
     # The album is built again, and its new previews are sent.
     album_changed(state)
@@ -737,7 +1054,7 @@ def album_changed(state):
 def _summary(state, t):
     summary = t["summary"].format(
         design=t["design_" + state["design"]],
-        count=state["photos"],
+        count=album_photo_count(state),
         title=state["title"] or t["no_title"],
     )
     # No buttons (task 1.2b): the album is built now; changes come after the link.
@@ -794,18 +1111,22 @@ def _changing(state):
     return "editing" in state["notes"] or _note(state, "photos_at") is not None
 
 
-def _start_change(state):
+def _start_change(state, change):
     """A change chosen from the list starts: remember the photo count, so
-    "no change" knows whether a photo was sent meanwhile."""
+    "no change" knows whether a photo was sent meanwhile, and which kind of
+    change it is (counted once it is made, for the limit)."""
     state["notes"].append("editing")
     _set_note(state, "photos_at", state["photos"])
+    _set_note(state, "changing", change)
 
 
 def _no_change(state, t):
     """ "↩️ בלי שינוי": back to the album's buttons, nothing changes."""
     at = _note(state, "photos_at")
-    for name in ("cover_check", "cover_problem"):
+    for name in ("cover_check", "cover_problem", "photo_pick"):
         _set_note(state, name, None)   # a new cover photo being checked: dropped
+    if at is None or state["photos"] <= int(at):
+        _set_note(state, "changing", None)   # nothing changed: it doesn't count
     if at is not None and state["photos"] > int(at):
         # A photo was sent meanwhile: it goes into the album, which is built again.
         if "editing" not in state["notes"]:
@@ -824,17 +1145,20 @@ def _change_button(t, text):
     return {"text": text, "buttons": [{"id": "edit_menu", "title": t["button_edit"]}]}
 
 
-def _edit_list(t, text):
+def _edit_list(t, text, state):
     """The "change something" list (WhatsApp allows only 3 buttons,
-    so the choices are in a list that opens from one button)."""
-    return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"], "rows": [
-        {"id": "edit_title", "title": t["button_edit_title"]},
-        {"id": "edit_design", "title": t["button_edit_design"]},
-        {"id": "edit_cover", "title": t["button_edit_cover"]},
-        {"id": "add_photos", "title": t["button_add_photos"]},
-        {"id": "restart", "title": t["button_restart_list"]},
-        {"id": "no_change", "title": t["button_no_change"]},
-    ]}}
+    so the choices are in a list that opens from one button).
+    "Replace or remove a photo" only once the customer has seen the numbers."""
+    rows = [{"id": "edit_title", "title": t["button_edit_title"]},
+            {"id": "edit_design", "title": t["button_edit_design"]},
+            {"id": "edit_cover", "title": t["button_edit_cover"]},
+            {"id": "add_photos", "title": t["button_add_photos"]},
+            {"id": "restart", "title": t["button_restart_list"]},
+            {"id": "no_change", "title": t["button_no_change"]}]
+    if "previews_sent" in state["notes"]:
+        rows.insert(0, {"id": "edit_photo", "title": t["button_edit_photo"]})
+    return {"text": text, "list": {"button": t["button_edit"], "title": t["edit_list_title"],
+                                   "rows": rows}}
 
 
 def _keep_cover_button(t, text):
