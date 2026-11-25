@@ -61,8 +61,12 @@ class ConversationTest(unittest.TestCase):
 
         replies = talk(state, "button", "design_colorful")
         self.assertEqual(state["step"], "cover_photo")
+        # Two messages (task 1.2b): HD + the clip first, the cover request last.
+        self.assertEqual(len(replies), 2)
         self.assertIn("HD", replies[0]["text"])
-        self.assertIn("כריכה", replies[0]["text"])
+        self.assertNotIn("כריכה", replies[0]["text"])
+        self.assertIn("כריכה", replies[1]["text"])
+        self.assertNotIn("video_file", replies[1])
 
         first = talk(state, "photo")             # the cover photo
         self.assertIn("בודקים", first[0]["text"])  # "got it, checking…" (task 2.5)
@@ -750,7 +754,10 @@ class HdVideoTest(unittest.TestCase):
         talk(state, "button", "photos_done")
         talk(state, "button", "cover_no")
         state["step"] = "hd_question"                     # what album_job.py does
-        replies = talk(state, "button", "hd_help")
+        replies = talk(state, "button", "hd_help")       # a short warning, no clip
+        self.assertNotIn("video_file", replies[0])
+        self.assertEqual(button_ids(replies[0]), ["hd_how", "hd_continue"])
+        replies = talk(state, "button", "hd_how")        # "how?": the clip and the steps
         self.assertIn("video_file", replies[0])
         self.assertEqual(button_ids(replies[0]), ["hd_continue"])
         self.assertEqual(state["photos"], 6)              # nothing deleted
@@ -873,7 +880,7 @@ class AlbumMessagesTest(unittest.TestCase):
         state["step"] = "hd_question"
         replies = talk(state, "button", "hd_help")
         self.assertIn("HD", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["hd_continue"])   # "continue without HD"
+        self.assertEqual(button_ids(replies[0]), ["hd_how", "hd_continue"])
         self.assertEqual((state["step"], state["photos"]), ("hd_question", 5))   # nothing deleted yet
         self.assertNotIn("resend_photos", state)
         talk(state, "photo")                          # the first new photo replaces the old ones
@@ -941,7 +948,8 @@ class EarlyHdQuestionTest(unittest.TestCase):
     def test_yes_shows_how_and_new_photos_replace_the_old(self):
         state, _ = self.asked()
         replies = talk(state, "button", "hd_help")
-        self.assertEqual(button_ids(replies[0]), ["hd_continue"])
+        self.assertEqual(button_ids(replies[0]), ["hd_how", "hd_continue"])
+        self.assertTrue(has_restart(replies[0]))          # 3 buttons, WhatsApp's limit
         self.assertEqual(state["photos"], 6)              # nothing deleted yet
         talk(state, "photo")
         self.assertTrue(state.pop("resend_photos"))
