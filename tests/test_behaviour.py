@@ -257,6 +257,13 @@ class IncomingMessagesTest(unittest.TestCase):
         self.assertTrue(rows[3]["info"]["changed"])
         self.assertNotIn("שלום", json.dumps(self.db.events, ensure_ascii=False))
 
+    def test_page_visits_get_the_step_and_photo_count(self):
+        self.say("text", "שלום")
+        order_id = self.db.orders[0]["id"]
+        self.orders.record(order_id, "album_opened", detail="phone")
+        row = self.db.events[-1]
+        self.assertEqual((row["step"], row["photos"]), ("design", 0))
+
     def test_the_source_is_recorded_and_carried_to_a_new_album(self):
         self.say("text", "שלום #fb1", source=("fb1", None))
         first = self.db.orders[0]["id"]

@@ -575,6 +575,11 @@ class Orders:
         Never raises: the history must not get in the customer's way."""
         if not self.history or not order_id:
             return
+        if state is None and "step" not in values:
+            # e.g. the album page's visits (bot.py): use the customer's state, if
+            # the bot has this order in memory (owner's test of 3.3b: "step -").
+            state = next((st for st in list(self._states.values())
+                          if st.get("order_id") == order_id), None)
         if state is not None:
             values.setdefault("step", state.get("step"))
             values.setdefault("photos", state.get("photos"))
