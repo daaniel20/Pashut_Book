@@ -68,9 +68,14 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(behaviour.read_source(self.text("שלום, אשמח לאלבום #FB1")),
                          ("fb1", None))
 
+    def test_a_number_code(self):
+        self.assertEqual(behaviour.read_source(self.text("שלום, אשמח לאלבום #204")),
+                         ("204", None))
+
     def test_no_code(self):
         self.assertEqual(behaviour.read_source(self.text("שלום")), (None, None))
         self.assertEqual(behaviour.read_source(self.text("סבתא #1")), (None, None))
+        self.assertEqual(behaviour.read_source(self.text("כיתה #12")), (None, None))
         self.assertEqual(behaviour.read_source({"type": "image"}), (None, None))
 
     def test_a_click_on_a_meta_ad(self):
@@ -89,6 +94,10 @@ class SourceTest(unittest.TestCase):
         self.assertTrue(link.startswith("https://wa.me/972501234567?text="))
         text = unquote(link.split("text=", 1)[1])
         self.assertEqual(behaviour.read_source(self.text(text)), ("flyer_tlv", None))
+        # A number code, inside the invisible left-to-right marks.
+        text = unquote(source_link.make_link("972501234567", "101").split("text=", 1)[1])
+        self.assertIn("\u2066#101\u2069", text)
+        self.assertEqual(behaviour.read_source(self.text(text)), ("101", None))
 
 
 class MessageNameTest(unittest.TestCase):
