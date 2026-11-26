@@ -30,6 +30,8 @@ Close is good: you can pick up the first ~10 books yourself and check them (see 
 | 8 | **דפוס המגנטון** — [hamagneton.co.il](https://hamagneton.co.il/%D7%90%D7%95%D7%93%D7%95%D7%AA%D7%99%D7%A0%D7%95/) | נתניה | Print house in the Sharon | on their site |
 | 9 | **דפוס דיגיטל** — [dfusdigital.co.il](https://dfusdigital.co.il/) | location not stated: check | Says it makes **hardcover books** (2 mm board), including photo albums | on their site |
 
+| 10 | **אור גרפיקס** — [listing](https://www.d.co.il/h-c12600-e0-p0-l0-city7405/) | Emek Hefer industrial park | Offset and digital print house. Not a photo lab: ask if they make a single hardcover photo book | in the listing |
+
 Two in Kfar Yona (טל פרינט, שי הדפסות) print documents and signs, not albums: skip.
 
 **On the phone with a local shop**, add: "אפשר לאסוף בעצמי מהחנות?" (can I pick it up myself?) and "מי מדפיס לכם את האלבומים?" (who prints your albums?).
