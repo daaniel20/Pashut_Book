@@ -192,6 +192,8 @@ def answer(state, kind, value, texts):
         # WhatsApp sends this e.g. for the "album" bundle of many photos sent
         # together; the photos themselves arrive one by one. Nothing to answer.
         return []
+    if kind == "text" and state.pop("from_link", False) and state["step"] != "new":
+        return _from_link(state, t)
     help_answer = _help(state, kind, value, words, t)
     if help_answer is not None:
         return help_answer
@@ -199,6 +201,19 @@ def answer(state, kind, value, texts):
     if restart is not None:
         return restart
     return [with_restart(state, m, t) for m in _answer(state, kind, value, words, t)]
+
+
+def _from_link(state, t):
+    """The ready-made first message of one of our links ("…#101", task 3.3b),
+    from a customer who already has an album. It's never a title, an answer or
+    a message for the owner (owner's phone test, Nov 26, 2026: after a paid
+    album it went to the owner). A paid album: a new album starts (the paid
+    one is kept). Otherwise: the question of the step they're at, again."""
+    if state["step"] == "paid":
+        state.clear()
+        state.update(new_state())
+        return _answer(state, "text", "", "", t)   # the welcome and the design buttons
+    return [with_restart(state, m, t) for m in _step_prompt(state, t)]
 
 
 def _today():
