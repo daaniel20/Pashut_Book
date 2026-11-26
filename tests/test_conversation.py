@@ -142,6 +142,42 @@ class ConversationTest(unittest.TestCase):
         talk(state, "text", "החתונה של דנה")
         self.assertEqual(state["title"], "החתונה של דנה")
 
+    def at_title_question(self):
+        state = conversation.new_state()
+        talk(state, "text", "שלום")
+        talk(state, "button", "design_classic")
+        talk(state, "photo")
+        talk(state, "photo")
+        talk(state, "text", "זהו")
+        self.assertEqual(state["step"], "cover")
+        return state
+
+    def test_typed_yes_asks_for_the_title(self):
+        # Owner's phone test, Nov 26, 2026: typed "כן להוסיף" became the title.
+        for typed in ("כן להוסיף", "כן, להוסיף!", "כן בבקשה", "בטח, נשמח", "כן"):
+            state = self.at_title_question()
+            talk(state, "text", typed)
+            self.assertEqual((state["step"], state["title"]), ("title", None), typed)
+            talk(state, "text", "כן")               # "yes" again isn't a title either
+            self.assertEqual((state["step"], state["title"]), ("title", None), typed)
+            talk(state, "text", "סבתא שרה")
+            self.assertEqual(state["title"], "סבתא שרה")
+
+    def test_typed_no_means_no_title(self):
+        for typed in ("בלי כותרת", "לא, תודה", "בלי"):
+            state = self.at_title_question()
+            talk(state, "text", typed)
+            self.assertEqual((state["step"], state["title"]), ("done", None), typed)
+        state = self.at_title_question()
+        talk(state, "button", "cover_yes")
+        talk(state, "text", "בלי כותרת")                # changed their mind at the title step
+        self.assertEqual((state["step"], state["title"]), ("done", None))
+
+    def test_a_title_starting_with_yes_but_long_is_a_title(self):
+        state = self.at_title_question()
+        talk(state, "text", "כן ירבו שמחות במשפחה שלנו")
+        self.assertEqual(state["title"], "כן ירבו שמחות במשפחה שלנו")
+
     def test_no_title_and_restart(self):
         state = conversation.new_state()
         talk(state, "text", "שלום")
@@ -1080,6 +1116,12 @@ class AddressPaymentTest(unittest.TestCase):
         conversation.owner_paid(state)
         self.assertEqual(state["step"], "paid")
         self.assertNotIn("payment_wait", state["notes"])
+
+    def test_typed_answers_match_buttons_without_commas_or_emojis(self):
+        # Owner's phone test, Nov 26, 2026: "כן להוסיף" became the cover title.
+        self.assertEqual(conversation._clean("כן, להוסיף!"), "כן להוסיף")
+        self.assertEqual(conversation._clean("✅ סיימתי לשלוח"), "סיימתי לשלוח")
+        self.assertEqual(conversation._clean("  📸 להוסיף   תמונות "), "להוסיף תמונות")
 
     def test_wrong_details_are_asked_again(self):
         state = self.approved()
