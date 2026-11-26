@@ -37,6 +37,11 @@ Task 3.3: every save of an order also records what changed (a new step, a new
 note) in the order history (history.py), and the other parts of the bot add
 their own moments through record(). Numbers only, never texts or photos.
 
+Task 3.4: cleanup.py deletes old photos by itself. It changes an order through
+reload_after(), so the customer's remembered state is read again. A customer
+whose unpaid album was deleted ("expired") starts a new album at their next
+message, told why first (text "album_expired").
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -46,6 +51,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import cleanup
 import conversation
 import history
 from database import DatabaseError
@@ -126,6 +132,7 @@ class Orders:
         the customer's order (then nothing has changed).
         """
         state = self._load(phone)
+        expired = state.pop("expired_before", False)
         old_order, old_step = state["order_id"], state["step"]
         # Changing something from the summary: the album was already finished.
         was_finished = old_step in conversation.FINISHED_STEPS or "editing" in state["notes"]
@@ -165,6 +172,9 @@ class Orders:
             log.info("Order %s: the customer reached today's new-album limit",
                      short(before["order_id"]))
             return [{"text": texts["new_album_limit"].format(max=MAX_NEW_ALBUMS_PER_DAY)}], None
+        if expired:
+            # Their last album was deleted after days without payment (task 3.4).
+            replies = [{"text": texts["album_expired"].format(days=cleanup.UNPAID_DAYS)}] + replies
 
         if "order_id" not in state:
             # "אלבום חדש": answer() started a fresh state, so open a new order.
@@ -571,8 +581,21 @@ class Orders:
             else:
                 state = conversation.new_state()
                 state["order_id"] = self._new_order(phone, state)
+                if row and "expired" in (row["notes"] or []) and row.get("photo_count"):
+                    state["expired_before"] = True   # said once, at their next message
                 self._states[phone] = state
         return self._states[phone]
+
+    def reload_after(self, phone, order_id, change):
+        """Task 3.4 (cleanup.py): forget the customer's remembered state of
+        this order, then change(); the next message reads it from Supabase."""
+        with self.lock_for(phone):
+            state = self._states.get(phone)
+            if state and state["order_id"] == order_id:
+                del self._states[phone]
+            self._seen.pop(order_id, None)
+            self._sizes.pop(order_id, None)
+            change()
 
     def _albums_today(self, phone):
         """How many albums this phone number started today (Israel's day, as
