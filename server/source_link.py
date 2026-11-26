@@ -20,13 +20,14 @@ from settings import read_env
 
 # The ready-made first message. The code is added at the end.
 FIRST_MESSAGE = "שלום! אשמח להכין אלבום תמונות"
-# Invisible marks around the code ("left-to-right isolate"), so in the Hebrew
-# line it shows as "#101", not "101#" (owner's phone test, Nov 26, 2026).
+# The code goes on its own line, in brackets: "(#101)". Invisible marks around
+# it ("left-to-right isolate") keep it from turning into "(101#)" next to the
+# Hebrew (owner's phone test, Nov 26, 2026).
 LTR_START, LTR_END = "\u2066", "\u2069"
 
 
 def make_link(number, code, text=FIRST_MESSAGE):
-    return f"https://wa.me/{number}?text=" + quote(f"{text} {LTR_START}#{code}{LTR_END}")
+    return f"https://wa.me/{number}?text=" + quote(f"{text}\n{LTR_START}(#{code}){LTR_END}")
 
 
 def main():

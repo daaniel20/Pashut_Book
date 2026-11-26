@@ -96,7 +96,7 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(behaviour.read_source(self.text(text)), ("flyer_tlv", None))
         # A number code, inside the invisible left-to-right marks.
         text = unquote(source_link.make_link("972501234567", "101").split("text=", 1)[1])
-        self.assertIn("\u2066#101\u2069", text)
+        self.assertTrue(text.endswith("\n\u2066(#101)\u2069"))
         self.assertEqual(behaviour.read_source(self.text(text)), ("101", None))
 
 
@@ -266,6 +266,49 @@ class IncomingMessagesTest(unittest.TestCase):
         second = self.db.orders[1]["id"]
         sources = [(r["order_id"], r["detail"]) for r in self.db.events if r["event"] == "source"]
         self.assertEqual(sources, [(first, "fb1"), (second, "fb1")])
+
+
+class LinkMessageTest(unittest.TestCase):
+    """Owner's phone test (Nov 26, 2026): our link's first message, sent by a
+    customer whose album was already paid, went to the owner."""
+
+    def setUp(self):
+        self.db = Database()
+        self.orders = orders.Orders(self.db)
+        self.orders.history = history.History(self.db, background=False)
+
+    def say(self, kind, value, source=None):
+        return self.orders.answer(CUSTOMER, kind, value, TEXTS, source=source)
+
+    def test_after_a_paid_album_a_new_album_starts(self):
+        self.say("text", "שלום")
+        self.orders._states[CUSTOMER]["step"] = "paid"
+        passed = []
+        self.orders.on_customer_text = lambda *a: passed.append(a)
+        replies = self.say("text", "שלום! אשמח להכין אלבום תמונות\n(#101)", source=("101", None))[0]
+        self.assertEqual(passed, [])                       # not sent to the owner
+        self.assertEqual(len(self.db.orders), 2)           # a new album
+        self.assertNotEqual(self.db.orders[0].get("status"), "cancelled")   # the paid one kept
+        self.assertEqual([behaviour.message_name(r, TEXTS) for r in replies],
+                         ["welcome", "choose_design"])
+
+    def test_in_the_middle_it_is_not_taken_as_an_answer(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        state = self.orders._states[CUSTOMER]
+        state["step"] = "title"
+        replies = self.say("text", "שלום! אשמח להכין אלבום תמונות\n(#101)", source=("101", None))[0]
+        self.assertIsNone(state["title"])                  # not saved as the cover title
+        self.assertEqual(state["step"], "title")
+        self.assertEqual(behaviour.message_name(replies[0], TEXTS), "ask_title")
+        self.assertNotIn("from_link", state)
+
+    def test_an_ordinary_text_is_unchanged(self):
+        self.say("text", "שלום")
+        self.say("button", "design_classic")
+        self.orders._states[CUSTOMER]["step"] = "title"
+        self.say("text", "סבתא שרה")
+        self.assertEqual(self.orders._states[CUSTOMER]["title"], "סבתא שרה")
 
 
 class SentMessagesTest(unittest.TestCase):

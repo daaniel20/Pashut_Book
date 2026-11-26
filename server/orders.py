@@ -148,7 +148,12 @@ class Orders:
             self._sources[phone] = (source[0], source[1], time.monotonic())
             self.record(state["order_id"], "source", state=state, detail=source[0],
                         info=source[1])
-        replies, photo = self._answer(phone, kind, value, texts)
+        # A message from one of our links is never an answer (conversation._from_link).
+        state["from_link"] = bool(source and source[0] and kind == "text")
+        try:
+            replies, photo = self._answer(phone, kind, value, texts)
+        finally:
+            state.pop("from_link", None)
         self._record_message(phone, before, kind, value, replies, photo, texts)
         return replies, photo
 
