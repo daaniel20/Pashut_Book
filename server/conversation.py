@@ -128,7 +128,9 @@ MAX_TITLE_LENGTH = 40
 HD_VIDEO = MEDIA_DIR / "hd-how-to-iphone.mp4"
 # Notes about the finished album, cleared whenever the album changes (it is
 # built again, sent again, and needs the owner's approval again).
-ALBUM_NOTES = ("previews_sent", "after_previews", "preview_ok", "after_done",
+# ("after_done", "the album is being made", is said once per album, even when
+# more photos arrive: owner's phone test, Nov 26, 2026, it came twice.)
+ALBUM_NOTES = ("previews_sent", "after_previews", "preview_ok",
                "owner_check", "owner_problem", "approved")
 # Limits (CLAUDE.md rule 11, owner's decision Nov 25, 2026): each kind of
 # change at most this many times per album (the README's "limited number of
@@ -415,6 +417,10 @@ def _answer(state, kind, value, words, t):
         return _after_approval(state, kind, value, words, t)
 
     # step == "done"
+    if kind == "other":
+        # A video (or a sticker…) after the summary: nothing to say. The photo
+        # count already said videos aren't used (owner's phone test, Nov 26, 2026).
+        return []
     changes = (
         ("edit_photo", "photo", "photo_number",
          lambda: [_keep_photo_button(t, t["ask_photo_number"])]),
@@ -703,6 +709,16 @@ def photos_settled(state, t, without_hd=False):
     "done" button, below the photos. [] if there is nothing new to say.
     without_hd: most photos came without HD (orders.py read their sizes), so the
     count message asks to resend them in HD instead (once per order)."""
+    late = _note(state, "late_from")
+    if late is not None:
+        # Photos that came after the summary stopped arriving: say how many,
+        # once, and build the album again (orders.py sees "rebuild").
+        _set_note(state, "late_from", None)
+        if state["step"] != "done":
+            return []
+        state["rebuild"] = True
+        return [_text(t["late_photos"].format(more=_photos(t, state["photos"] - int(late)),
+                                              total=state["photos"]))]
     waiting = "done_waiting" in state["notes"]
     if waiting:
         state["notes"].remove("done_waiting")
@@ -975,11 +991,15 @@ def _on_photo(state, t):
         if state["photos"] >= MAX_PHOTOS:
             return _after_done(state, t)
         # A photo that arrives after the summary (still uploading, or sent late):
-        # it goes into the album, which is built again (orders.py sees "rebuild").
+        # it goes into the album. Nothing is said yet: once they stop,
+        # photos_settled() says how many came and the album is built again
+        # (owner's phone test, Nov 26, 2026: 4 photos came 4 minutes late).
+        # Note "late_from:N" = the count before them; meanwhile no old link is sent.
+        if _note(state, "late_from") is None:
+            _set_note(state, "late_from", state["photos"])
         state["photos"] += 1
-        state["rebuild"] = True
         album_changed(state)
-        return _once(state, "late_photos", [_text(t["late_photos"])])
+        return []
     if step == "cover_problem":
         # A new photo instead of a tap on "send another": also a re-send.
         if _used(state, "cover_resend") >= MAX_CHANGES:
@@ -1145,7 +1165,7 @@ def _finish(state, t):
     state["step"] = "done"
     # The album is built again, and its new previews are sent.
     album_changed(state)
-    for note in ("editing", "confirmed", "late_photos"):
+    for note in ("editing", "confirmed"):
         while note in state["notes"]:
             state["notes"].remove(note)
     _set_note(state, "photos_at", None)

@@ -318,10 +318,15 @@ class WaitForPhotosTest(unittest.TestCase):
         self.say("button", "photos_done")
         self.say("button", "cover_no")
         self.assertEqual(len(self.ready), 1)
-        replies = self.say("photo", photo(4))
-        self.assertIn("נוסיף אותן", replies[0]["text"])
-        self.assertEqual(self.say("photo", photo(5)), [])   # said once
-        self.assertEqual(len(self.ready), 3)                # built again (album_job merges)
+        self.sent.clear()
+        orders.QUIET_SECONDS = 0.5   # time to look before they "stop arriving"
+        self.assertEqual(self.say("photo", photo(4)), [])   # quiet while they arrive
+        self.assertFalse(self.orders.is_done(PHONE, self.db.orders[0]["id"]))  # no old link
+        self.say("photo", photo(5))
+        self.assertTrue(self.wait_until(lambda: self.sent))
+        self.assertIn("עוד 2 תמונות", self.sent[-1]["text"])
+        self.assertTrue(self.wait_until(lambda: len(self.ready) == 2))   # built again, once
+        self.assertTrue(self.orders.is_done(PHONE, self.db.orders[0]["id"]))
         self.assertEqual(self.db.orders[0]["photo_count"], 5)
         self.assertEqual(len(self.db.files), 5)
 
