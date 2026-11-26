@@ -49,6 +49,7 @@ import re
 import secrets
 import subprocess
 import threading
+import time
 
 import conversation
 import preview_links
@@ -104,12 +105,17 @@ class OwnerApprovals:
                           short(order_id))
 
     def ask(self, phone, order_id):
+        started = time.monotonic()
         report = self.run_print(order_id)
         token = secrets.token_hex(3)
         if not self.orders.owner_asked(phone, order_id, token):
             log.info("Album %s changed before the owner was asked; a new request comes later",
                      short(order_id))
             return
+        self._record(phone, order_id, "owner_asked", detail="print_failed"
+                     if report is None or "error" in report else None,
+                     info=dict(_report_numbers(report),
+                               seconds=round(time.monotonic() - started, 1)))
         self._send_request(phone, order_id, token, report)
         log.info("Album %s: asked the owner to approve it", short(order_id))
 
@@ -228,6 +234,12 @@ class OwnerApprovals:
             self.send(self.owner, {"text": t["owner_write"]})
             log.info("Album %s: the owner found a problem", short(order_id))
 
+    def _record(self, phone, order_id, event, **values):
+        """A moment in the order history (task 3.3). Numbers only."""
+        record = getattr(self.orders, "record_for", None)
+        if record:
+            record(phone, order_id, event, **values)
+
     # ---------- payment (task 3.2) ----------
 
     def payment(self, phone, order_id):
@@ -281,6 +293,8 @@ class OwnerApprovals:
         if not help_answer:
             message["buttons"] = [{"id": "edit_menu", "title": t["button_edit"]}]
         sent = self.send(phone, message)
+        self._record(phone, order_id, "owner_wrote", detail="help" if help_answer else None,
+                     info={"letters": len(text.strip()), "sent": sent})
         reply = t["owner_passed_on"] if sent else t["owner_not_sent"]
         self.send(self.owner, {"text": reply.format(phone=_last_digits(phone))})
         log.info("Album %s: passed the owner's message to the customer", short(order_id))
@@ -350,6 +364,13 @@ class OwnerApprovals:
                 self._send_request(phone, order_id, token)
         for phone, order_id in paying:
             self.send_payment_request(phone, order_id)
+
+
+def _report_numbers(report):
+    """The print report's numbers for the order history (task 3.3)."""
+    if not report or "error" in report:
+        return {}
+    return {kind: len(report.get(kind) or []) for kind in ("problems", "warnings", "notes")}
 
 
 def local_number(phone):

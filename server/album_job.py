@@ -32,6 +32,7 @@ import json
 import logging
 import subprocess
 import threading
+import time
 
 import conversation
 from orders import short
@@ -89,8 +90,10 @@ class AlbumJobs:
         if not self.orders.wait_for_photos(order_id, PHOTOS_WAIT_SECONDS):
             log.warning("Album %s: some photos are still saving; checking anyway", name)
 
+        started = time.monotonic()
         info = self.run_tool(order_id, check_only=True)
         if not info:
+            self._record(phone, order_id, "album_check_failed")
             return
         notes = self.orders.notes_of(phone, order_id)
         if notes is None:
@@ -98,6 +101,8 @@ class AlbumJobs:
             return
         log.info("Album %s: %s photos, %s without HD, left out %s", name,
                  info["photos"], info["without_hd"], info["left_out"])
+        self._record(phone, order_id, "album_checked", count=info["photos"],
+                     info=dict(_numbers(info), seconds=_since(started)))
 
         if needs_hd(info) and "hd_asked" not in notes:
             if self.orders.ask_hd(phone, order_id):
@@ -110,13 +115,25 @@ class AlbumJobs:
             self._told.add(order_id)
             self.send(phone, {"text": message})
 
+        started = time.monotonic()
         result = self.run_tool(order_id, check_only=False)
         if result and "pages" in result:
             log.info("✅ Album %s built: %s pages. Open %s/album.html",
                      name, result["pages"], result["folder"])
+            self._record(phone, order_id, "album_built", count=result["pages"],
+                         detail=result.get("design"),
+                         info=dict(_numbers(result), seconds=_since(started)))
             self.send_previews(phone, order_id, result)
-        elif result:
-            log.error("❌ Album %s was not built: %s", name, result.get("error"))
+        else:
+            if result:
+                log.error("❌ Album %s was not built: %s", name, result.get("error"))
+            self._record(phone, order_id, "album_failed", info={"seconds": _since(started)})
+
+    def _record(self, phone, order_id, event, **values):
+        """A moment in the order history (task 3.3)."""
+        record = getattr(self.orders, "record_for", None)
+        if record:
+            record(phone, order_id, event, **values)
 
     def send_previews(self, phone, order_id, result):
         """Send the customer the link to the album's preview (task 2.4)."""
@@ -126,6 +143,7 @@ class AlbumJobs:
                 return   # it changed while building: the new album's previews come next
         if not self.orders.is_done(phone, order_id):
             log.info("Album %s: the customer is changing something; previews wait", name)
+            self._record(phone, order_id, "previews_waiting")
             return
         previews = result.get("previews") or []
         if not previews or not self.make_link:
@@ -139,6 +157,7 @@ class AlbumJobs:
                    "image_file": previews[0]["file"]}   # the cover on top
         if not self.send(phone, message):
             log.error("❌ Album %s: the preview link was not sent", name)
+            self._record(phone, order_id, "previews_not_sent")
             return
         self.send(phone, conversation.after_previews(t))
         self.orders.add_note(phone, order_id, "previews_sent")
@@ -180,6 +199,22 @@ def album_removable(order_id):
             removable.update(int(n[6:]) for n in names
                              if isinstance(n, str) and n.startswith("photo ") and n[6:].isdigit())
     return removable
+
+
+def _since(started):
+    return round(time.monotonic() - started, 1)
+
+
+def _numbers(result):
+    """The album tool's numbers for the order history (task 3.3): no names, no texts."""
+    numbers = {key: result[key] for key in
+               ("photos", "used", "without_hd", "pages", "photos_in_album",
+                "photos_on_pages", "full_pages") if isinstance(result.get(key), int)}
+    for reason, count in (result.get("left_out") or {}).items():
+        numbers["left_out_" + reason] = count
+    if isinstance(result.get("notes"), list):
+        numbers["owner_notes"] = len(result["notes"])
+    return numbers
 
 
 def needs_hd(info):

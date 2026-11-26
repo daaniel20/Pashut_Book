@@ -67,6 +67,18 @@ class Database:
         return self._call("GET", f"/rest/v1/orders?order=created_at.desc&limit={limit}"
                           "&select=id,phone,status,step,photo_count,created_at,photos(count)")
 
+    # ---------- order history (task 3.3) ----------
+
+    def add_event(self, row):
+        """Add one row to the order history (history.py; numbers only)."""
+        self._call("POST", "/rest/v1/order_events", row, prefer="return=minimal")
+
+    def order_events(self, order_id):
+        """An order's history, oldest first (for check_supabase.py)."""
+        return self._call("GET", "/rest/v1/order_history?order_id=eq." + quote(order_id)
+                          + "&select=created_at,event,step,photos,count,detail,"
+                          "seconds_from_start&order=created_at,id")
+
     # ---------- photos ----------
 
     def add_photo(self, fields):

@@ -33,6 +33,10 @@ To check a photo number the customer types, album_numbers(order_id) (set by
 bot.py) gives the numbers of the photos inside the album. A question after
 "עזרה" goes to on_help(phone, order_id, text).
 
+Task 3.3: every save of an order also records what changed (a new step, a new
+note) in the order history (history.py), and the other parts of the bot add
+their own moments through record(). Numbers only, never texts or photos.
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -43,6 +47,7 @@ import time
 from datetime import datetime, timezone
 
 import conversation
+import history
 from database import DatabaseError
 from whatsapp import WhatsAppError
 
@@ -105,6 +110,8 @@ class Orders:
         self.album_numbers = None
         # album_removable(order_id) -> the numbers that may be removed, or None
         self.album_removable = None
+        self.history = None   # history.History (task 3.3), set by bot.py
+        self._seen = {}       # order_id -> (step, notes) as last recorded
 
     def lock_for(self, phone):
         with self._guard:
@@ -154,6 +161,7 @@ class Orders:
             before.pop("album_removable", None)
             before["notes"] = [n for n in before["notes"] if n != "confirm_restart"]
             self._states[phone] = before
+            self.record(before["order_id"], "new_album_limit", state=before)
             log.info("Order %s: the customer reached today's new-album limit",
                      short(before["order_id"]))
             return [{"text": texts["new_album_limit"].format(max=MAX_NEW_ALBUMS_PER_DAY)}], None
@@ -165,6 +173,8 @@ class Orders:
             except DatabaseError:
                 del self._states[phone]  # reload from Supabase next time
                 raise
+            self.record(old_order, "new_album", detail="kept" if was_finished else "cancelled",
+                        photos=count_before)
             if not was_finished:
                 self._cancel(old_order)
             return replies, None
@@ -177,16 +187,14 @@ class Orders:
                 keep = resend if resend is not True else None
                 count = self.db.delete_order_photos(state["order_id"], keep=keep)
                 self._sizes.pop(state["order_id"], None)
+                self.record(state["order_id"], "photos_deleted_for_hd", count=count, state=state)
                 log.info("Deleted %s photos of order %s (resending in HD)",
                          count, short(state["order_id"]))
             except DatabaseError as error:
                 log.error("Could not delete old photos of order %s: %s",
                           short(state["order_id"]), error)
-        try:
-            self.db.update_order(state["order_id"], _fields(state))
-        except DatabaseError as error:
-            # The bot still remembers it; the next message saves it again.
-            log.error("Could not save order %s: %s", short(state["order_id"]), error)
+        # (If saving fails, the bot still remembers it; the next message saves it again.)
+        self._save(state)
 
         photo = None
         # A new photo was counted (when resending in HD, the first new photo
@@ -262,10 +270,8 @@ class Orders:
                     state, texts, without_hd=self.mostly_without_hd(state["order_id"]))
                 if not replies:
                     return
-                try:
-                    self.db.update_order(state["order_id"], _fields(state))
-                except DatabaseError as error:
-                    log.error("Could not save order %s: %s", short(state["order_id"]), error)
+                self._record_sizes(state)
+                self._save(state)
                 rebuild = state.pop("rebuild", False)   # photos came after the summary
                 if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
                     self.on_ready(phone, state["order_id"])
@@ -301,10 +307,7 @@ class Orders:
             replies = conversation.cover_checked(state, number, result, texts)
             if not replies:
                 return []
-            try:
-                self.db.update_order(order_id, _fields(state))
-            except DatabaseError as error:
-                log.error("Could not save order %s: %s", short(order_id), error)
+            self._save(state)
             if state["step"] == "done" and old_step != "done" and self.on_ready:
                 self.on_ready(phone, order_id)   # a new cover chosen from the summary
             if state["step"] == "photos":
@@ -375,10 +378,7 @@ class Orders:
                 return False
             state["step"] = "hd_question"
             state["notes"].append("hd_asked")
-            try:
-                self.db.update_order(order_id, _fields(state))
-            except DatabaseError as error:
-                log.error("Could not save order %s: %s", short(order_id), error)
+            self._save(state)
             return True
 
     def is_done(self, phone, order_id):
@@ -398,10 +398,7 @@ class Orders:
                 return
             if note not in state["notes"]:
                 state["notes"].append(note)
-            try:
-                self.db.update_order(order_id, _fields(state))
-            except DatabaseError as error:
-                log.error("Could not save order %s: %s", short(order_id), error)
+            self._save(state)
 
     # ---------- the owner's approval (task 3.1) ----------
 
@@ -503,6 +500,54 @@ class Orders:
             self.db.update_order(state["order_id"], _fields(state))
         except DatabaseError as error:
             log.error("Could not save order %s: %s", short(state["order_id"]), error)
+        self._record_changes(state)
+
+    # ---------- the order history (task 3.3) ----------
+
+    def record(self, order_id, event, state=None, **values):
+        """Add one moment to the order's history (history.py). state: the
+        customer's state, for the step and photo count at that moment.
+        Never raises: the history must not get in the customer's way."""
+        if not self.history or not order_id:
+            return
+        if state is not None:
+            values.setdefault("step", state.get("step"))
+            values.setdefault("photos", state.get("photos"))
+        try:
+            self.history.record(order_id, event, **values)
+        except Exception:
+            log.exception("Could not record %s in the order history", event)
+
+    def record_for(self, phone, order_id, event, **values):
+        """record(), with the step and photo count of the customer's state
+        (for album_job.py, cover_check.py, owner_approval.py)."""
+        state = self._states.get(phone)
+        if state and state.get("order_id") == order_id:
+            values.setdefault("step", state["step"])
+            values.setdefault("photos", state["photos"])
+        self.record(order_id, event, **values)
+
+    def _record_changes(self, state):
+        """Record the order's new step and new notes since it was last saved."""
+        order_id = state["order_id"]
+        old = self._seen.get(order_id)
+        self._seen[order_id] = (state["step"], list(state["notes"]))
+        if old is None:
+            return
+        for event, count, detail, info in history.changes(old[0], old[1], state["step"],
+                                                          state["notes"]):
+            self.record(order_id, event, state=state, count=count, detail=detail,
+                        info=info or None)
+
+    def _record_sizes(self, state):
+        """The photos stopped arriving: how many came with and without HD."""
+        with self._saved:
+            sizes = list(self._sizes.get(state["order_id"], {}).values())
+        self.record(state["order_id"], "photos_arrived", state=state, count=state["photos"],
+                    info={"sizes_known": sum(1 for s in sizes if s),
+                          "without_hd": sum(s == WITHOUT_HD_PIXELS for s in sizes),
+                          "with_hd": sum(bool(s) and s > WITHOUT_HD_PIXELS for s in sizes),
+                          "smaller": sum(bool(s) and s < WITHOUT_HD_PIXELS for s in sizes)})
 
     def _load(self, phone):
         if phone not in self._states:
@@ -519,6 +564,7 @@ class Orders:
                         if row.get("ship_" + f)}
                 if ship:
                     self._states[phone]["ship"] = ship
+                self._seen[row["id"]] = (row["step"], list(self._states[phone]["notes"]))
                 if "done_waiting" in self._states[phone]["notes"]:
                     # The bot restarted while waiting for the last photos: don't wait again.
                     self._states[phone]["notes"].remove("done_waiting")
@@ -542,6 +588,8 @@ class Orders:
     def _new_order(self, phone, state):
         order_id = self.db.create_order(phone, _fields(state))["id"]
         log.info("New order %s", short(order_id))
+        self._seen[order_id] = (state["step"], list(state["notes"]))
+        self.record(order_id, "order_started", state=state)
         return order_id
 
     def _cancel(self, order_id):
@@ -552,6 +600,7 @@ class Orders:
             log.error("Could not cancel order %s: %s", short(order_id), error)
             return
         log.info("Order %s cancelled (customer started a new album)", short(order_id))
+        self._seen.pop(order_id, None)
         timer = threading.Timer(DELETE_DELAY_SECONDS, self._delete_photos, args=(order_id,))
         timer.daemon = True
         timer.start()
@@ -599,14 +648,20 @@ def _fields(state):
     return fields
 
 
-def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_size=None):
+def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_size=None,
+               record=None):
     """Download one photo from WhatsApp and save it in Supabase.
 
     media is {"id": ..., "mime_type": ...} from the WhatsApp message.
     Tries a few times if the internet hiccups. Returns True if saved.
     We never log anything about the photo except its number.
     on_size(long_side) is called once it's saved (None if the size can't be read).
+    record(event, count=, detail=, info=) adds a row to the order history (task 3.3):
+    "photo_saved" (its size, HD or not, how long saving took) or "photo_failed".
     """
+    record = record or (lambda *args, **kwargs: None)
+    started = time.monotonic()
+    too_big = False
     name = f"photo {number} of order {short(order_id)}"
     mime_type = (media.get("mime_type") or "image/jpeg").split(";")[0].strip().lower()
     path = f"{order_id}/{number:03d}.{FILE_TYPES.get(mime_type, 'jpg')}"
@@ -619,6 +674,7 @@ def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_siz
                             "mime_type": mime_type, "size_bytes": 0})
     except DatabaseError as error:
         log.error("Could not save %s: %s", name, error)
+        record("photo_failed", count=number, detail="database")
         return False
     if row is None:
         log.info("Skipped %s: this photo was already saved", name)
@@ -630,13 +686,21 @@ def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_siz
             size = int(info.get("file_size") or 0)
             if size > MAX_PHOTO_BYTES:
                 log.error("Did not save %s: too big (%s MB)", name, size // 1_000_000)
+                record("photo_failed", count=number, detail="too_big",
+                       info={"kb": size // 1024})
+                too_big = True
                 break
             data = whatsapp.download(info["url"])
             db.upload(path, data, mime_type)
             db.update_photo_size(row["id"], len(data))
             log.info("Saved %s", name)
+            long_side = image_long_side(data)
             if on_size:
-                on_size(image_long_side(data))
+                on_size(long_side)
+            record("photo_saved", count=number, detail=mime_type.split("/")[-1],
+                   info={"kb": len(data) // 1024, "long_side": long_side,
+                         "without_hd": long_side == WITHOUT_HD_PIXELS,
+                         "tries": attempt, "seconds": round(time.monotonic() - started, 1)})
             return True
         except (WhatsAppError, DatabaseError, KeyError, ValueError) as error:
             log.warning("Try %s/%s to save %s failed: %s", attempt, attempts, name, error)
@@ -644,6 +708,8 @@ def save_photo(db, whatsapp, order_id, number, media, attempts=3, wait=5, on_siz
                 time.sleep(wait * attempt)
 
     log.error("❌ Could not save %s. The customer's count includes it.", name)
+    if not too_big:
+        record("photo_failed", count=number, detail="error", info={"tries": attempts})
     try:
         db.remove_photo_row(row["id"])
     except DatabaseError:
