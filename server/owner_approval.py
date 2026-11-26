@@ -140,8 +140,9 @@ class OwnerApprovals:
             text += "\n\n" + checks
         if link:
             cover = folder / "preview" / link["images"][0]["name"]
+            # "?o=1": the owner's own visits aren't counted as the customer's (3.3b).
             message = {"text": text, "link": {"button": t["button_preview_link"],
-                                              "url": f"{self.public_url}/album/{code}"}}
+                                              "url": f"{self.public_url}/album/{code}?o=1"}}
             if cover.is_file():
                 message["image_file"] = str(cover)
             self.send(self.owner, message)

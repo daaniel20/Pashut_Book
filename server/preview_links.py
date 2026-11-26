@@ -16,6 +16,12 @@ Protecting the photos:
 
 The links are kept as small files in output/preview-links/<code>.json
 (output/ is never uploaded to GitHub). Built-in Python only.
+
+Task 3.3b: the page sends two tiny notes back to the bot (POST /album/<code>/note):
+"opened" and, when the customer leaves the page, how far they scrolled and for
+how long. Each browser gets a random device code (kept in the browser), so the
+number of devices can be counted. The owner's link ends with "?o=1", so the
+owner's own visits are marked as such. Numbers only (behaviour.py).
 """
 
 import html
@@ -33,7 +39,8 @@ _CODE = re.compile(r"^[A-Za-z0-9_-]{32}$")
 
 
 def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS,
-           photos=None, design=None, full_pages=None, photos_on_pages=None, left_out=None):
+           photos=None, design=None, full_pages=None, photos_on_pages=None, left_out=None,
+           order_id=None):
     """A new link code for this album. Older links to the same album stop working.
     previews is the list from build_album.py: [{"file": path, "pages": [2, 3]}, …].
     photos, design, full_pages (pages with one edge-to-edge photo), photos_on_pages
@@ -49,6 +56,7 @@ def create(folder, previews, pages, links_dir=LINKS_DIR, days=LINK_DAYS,
     code = secrets.token_urlsafe(24)   # 32 letters and digits
     data = {
         "folder": folder,
+        "order_id": order_id,   # for recording the page's visits (task 3.3b)
         "pages": pages,
         "photos": photos,
         "design": design,
@@ -134,7 +142,8 @@ def page_html(code, data, t):
     return _PAGE.format(title=html.escape(t["preview_page_title"]),
                         info=f'<div class="info">{info}</div>',
                         note=_lines(t["preview_page_note"]), images=images,
-                        end=f'<div class="end">{_lines(t["preview_page_end"])}</div>')
+                        end=f'<div class="end">{_lines(t["preview_page_end"])}</div>'
+                        + _NOTES.replace("CODE", code))
 
 
 def _left_out(left_out, t):
@@ -161,6 +170,54 @@ def _lines(text):
     """Each line of the text as its own paragraph."""
     return "".join(f"<p>{html.escape(line)}</p>" for line in text.split("\n") if line.strip())
 
+
+# Task 3.3b: tell the bot the page was opened, and (when the page is left or
+# hidden) how far down it was scrolled, how long it was looked at, and how many
+# pictures were seen. A random device code is kept in the browser.
+_NOTES = """<script>
+(function () {
+  var url = "/album/CODE/note", owner = /[?&]o=1/.test(location.search);
+  var device, start = Date.now(), depth = 0, last = 0;
+  try {
+    device = localStorage.getItem("pb_device");
+    if (!device) {
+      device = Math.random().toString(36).slice(2, 12);
+      localStorage.setItem("pb_device", device);
+    }
+  } catch (e) { device = Math.random().toString(36).slice(2, 12); }
+  function note(data) {
+    data.d = device; if (owner) data.o = 1;
+    var body = JSON.stringify(data);
+    if (navigator.sendBeacon) navigator.sendBeacon(url, body);
+    else { var r = new XMLHttpRequest(); r.open("POST", url); r.send(body); }
+  }
+  function measure() {
+    var page = document.documentElement, bottom = window.scrollY + window.innerHeight;
+    depth = Math.max(depth, Math.round(100 * bottom / Math.max(page.scrollHeight, 1)));
+  }
+  function seen() {
+    if (Date.now() - last < 2000) return;   // "hidden" and "left" come together
+    last = Date.now();
+    measure();
+    var images = document.querySelectorAll("figure img"), count = 0, i;
+    var bottom = window.scrollY + window.innerHeight;
+    for (i = 0; i < images.length; i++) {
+      if (images[i].getBoundingClientRect().top + window.scrollY < bottom) count++;
+    }
+    var most = Number(sessionStorage.getItem("pb_seen") || 0);
+    count = Math.max(count, most); sessionStorage.setItem("pb_seen", count);
+    note({e: "seen", depth: depth, seconds: Math.round((Date.now() - start) / 1000),
+          images_seen: count, images: images.length});
+  }
+  window.addEventListener("scroll", measure, {passive: true});
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") seen();
+  });
+  window.addEventListener("pagehide", seen);
+  note({e: "open"});
+})();
+</script>
+"""
 
 _PAGE = """<!DOCTYPE html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">

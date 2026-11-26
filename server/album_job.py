@@ -151,6 +151,7 @@ class AlbumJobs:
                         "run git pull)", name)
             return
         t = self.texts
+        result["order_id"] = order_id   # the page's visits are recorded (task 3.3b)
         url = self.make_link(result)
         message = {"text": t["preview_intro"].format(pages=result["pages"]),
                    "link": {"button": t["button_preview_link"], "url": url},
