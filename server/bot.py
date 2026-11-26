@@ -13,6 +13,7 @@ Task 3.2: replace or remove a photo by its number, then the shipping address,
 and the payment (a Bit request the owner sends by hand).
 Task 3.3: every step of every order is recorded in Supabase, numbers only
 (history.py, table "order_events").
+Task 3.4: old photos and album files are deleted by themselves (cleanup.py).
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -44,6 +45,7 @@ from urllib.parse import parse_qs, urlparse
 import conversation
 import preview_links
 from album_job import AlbumJobs, album_numbers, album_removable
+from cleanup import Cleanup
 from cover_check import CoverChecks
 from database import Database, DatabaseError
 from history import History
@@ -360,6 +362,7 @@ def main():
     if not owner.owner:
         log.warning("OWNER_PHONE is not set in .env: albums can't be sent to you for "
                     "approval. See docs/setup/3.1-owner-approval.md")
+    Cleanup(db, orders).start()   # delete old photos, every few hours (task 3.4)
     log.info("Bot running at http://localhost:%s (press Ctrl+C to stop)", PORT)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
