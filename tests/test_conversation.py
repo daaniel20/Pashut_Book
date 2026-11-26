@@ -640,16 +640,31 @@ class ArrivingPhotosTest(unittest.TestCase):
         self.assertEqual(conversation.photos_settled(state, TEXTS), [])   # only once
 
     def test_photo_after_the_summary_is_added(self):
+        # Owner's phone test, Nov 26, 2026: photos (and videos) still uploading
+        # came minutes after the summary.
         state = self.at_photos()
         talk(state, "button", "photos_done")
         talk(state, "button", "cover_no")
         self.assertEqual(state["step"], "done")
-        replies = talk(state, "photo")
-        self.assertEqual(state["photos"], 4)
-        self.assertTrue(state.pop("rebuild"))
-        self.assertIn("נוסיף", replies[0]["text"])
+        self.assertEqual(talk(state, "photo"), [])     # quiet while they arrive
+        self.assertEqual(talk(state, "other", "video"), [])
         self.assertEqual(talk(state, "photo"), [])
         self.assertEqual(state["photos"], 5)
+        self.assertNotIn("rebuild", state)
+        replies = conversation.photos_settled(state, TEXTS)   # once they stop
+        self.assertIn("עוד 2 תמונות", replies[0]["text"])
+        self.assertIn("5 תמונות", replies[0]["text"])
+        self.assertTrue(state.pop("rebuild"))                 # built again, once
+        self.assertEqual(conversation.photos_settled(state, TEXTS), [])
+
+    def test_the_album_is_being_made_is_said_once(self):
+        state = self.at_photos()
+        talk(state, "button", "photos_done")
+        talk(state, "button", "cover_no")
+        self.assertIn("בהכנה", talk(state, "text", "מתי?")[0]["text"])
+        talk(state, "photo")
+        conversation.photos_settled(state, TEXTS)
+        self.assertEqual(talk(state, "text", "נו?"), [])      # not again
 
 
 class DoneButtonBelowPhotosTest(unittest.TestCase):

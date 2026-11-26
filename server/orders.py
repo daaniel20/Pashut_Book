@@ -222,8 +222,11 @@ class Orders:
         if state["step"] == "done" and (old_step != "done" or rebuild) and not unchanged \
                 and self.on_ready:
             self.on_ready(phone, state["order_id"])
-        if "done_waiting" in state["notes"] or \
+        if "done_waiting" in state["notes"] or conversation._note(state, "late_from") or \
                 (kind == "photo" and state["step"] in ("photos", "cover_check")):
+            # (Also photos after the summary, and after a bot restart that
+            # happened while late photos were arriving: the count comes once
+            # they stop, then the album is built again.)
             self._settle_later(phone, texts)
         return replies, photo
 
@@ -263,7 +266,8 @@ class Orders:
                     self.db.update_order(state["order_id"], _fields(state))
                 except DatabaseError as error:
                     log.error("Could not save order %s: %s", short(state["order_id"]), error)
-                if state["step"] == "done" and old_step != "done" and self.on_ready:
+                rebuild = state.pop("rebuild", False)   # photos came after the summary
+                if state["step"] == "done" and (old_step != "done" or rebuild) and self.on_ready:
                     self.on_ready(phone, state["order_id"])
             for message in replies:
                 if self.send:
@@ -379,10 +383,12 @@ class Orders:
 
     def is_done(self, phone, order_id):
         """True if this is still the customer's order and they are not in the
-        middle of changing something (step "done")."""
+        middle of changing something (step "done"), and no photos are still
+        arriving after the summary (then the album is built again first)."""
         with self.lock_for(phone):
             state = self._states.get(phone)
-            return bool(state and state["order_id"] == order_id and state["step"] == "done")
+            return bool(state and state["order_id"] == order_id and state["step"] == "done"
+                        and conversation._note(state, "late_from") is None)
 
     def add_note(self, phone, order_id, note):
         """Add a note to the order (e.g. "previews_sent", task 2.4) and save it."""
