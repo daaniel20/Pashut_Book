@@ -11,6 +11,8 @@ Task 3.1: when the customer loves the album, ask the owner (OWNER_PHONE in .env)
 to approve it, on WhatsApp (owner_approval.py).
 Task 3.2: replace or remove a photo by its number, then the shipping address,
 and the payment (a Bit request the owner sends by hand).
+Task 3.3: every step of every order is recorded in Supabase, numbers only
+(history.py, table "order_events").
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -44,6 +46,7 @@ import preview_links
 from album_job import AlbumJobs, album_numbers, album_removable
 from cover_check import CoverChecks
 from database import Database, DatabaseError
+from history import History
 from orders import Orders, save_photo
 from owner_approval import OwnerApprovals
 from settings import ENV_FILE, PAGES_DIR, load_texts, read_env
@@ -154,7 +157,8 @@ def send(to, message):
 def save_photo_safely(order_id, number, media):
     try:
         save_photo(db, whatsapp, order_id, number, media,
-                   on_size=lambda side: orders.photo_size(order_id, number, side))
+                   on_size=lambda side: orders.photo_size(order_id, number, side),
+                   record=lambda event, **values: orders.record(order_id, event, **values))
     except Exception:
         log.exception("Something went wrong while saving a photo")
     finally:
@@ -332,6 +336,7 @@ def main():
     db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
     orders = Orders(db)
     orders.send = send
+    orders.history = History(db)   # the order history (task 3.3)
     public_url = (env.get("PUBLIC_URL") or DEFAULT_PUBLIC_URL).rstrip("/")
 
     def make_link(result):

@@ -20,6 +20,7 @@ import json
 import logging
 import subprocess
 import threading
+import time
 
 from orders import short
 from settings import PROJECT_DIR
@@ -54,6 +55,7 @@ class CoverChecks:
     def run(self, phone, order_id, number):
         name = short(order_id)
         result = None
+        started = time.monotonic()
         if not self.orders.wait_for_photos(order_id, PHOTO_WAIT_SECONDS, number):
             log.warning("Cover photo of %s took too long to save; not checked", name)
         else:
@@ -61,6 +63,14 @@ class CoverChecks:
         if result:
             log.info("Cover photo %s of %s: %s (%s DPI on the cover)", number, name,
                      "ok" if result["ok"] else result["problem"], result["dpi"])
+        record = getattr(self.orders, "record_for", None)
+        if record:   # the order history (task 3.3)
+            record(phone, order_id, "cover_checked", count=number,
+                   detail=("ok" if result["ok"] else result.get("problem")) if result
+                   else "not_checked",
+                   info={"dpi": (result or {}).get("dpi"),
+                         "without_hd": (result or {}).get("without_hd"),
+                         "seconds": round(time.monotonic() - started, 1)})
         replies = self.orders.cover_checked(phone, order_id, number, result, self.texts)
         for reply in replies:
             self.send(phone, reply)
