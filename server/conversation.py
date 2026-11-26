@@ -192,6 +192,8 @@ def answer(state, kind, value, texts):
         # WhatsApp sends this e.g. for the "album" bundle of many photos sent
         # together; the photos themselves arrive one by one. Nothing to answer.
         return []
+    if kind == "text" and state.pop("from_link", False) and state["step"] != "new":
+        return _from_link(state, t)
     help_answer = _help(state, kind, value, words, t)
     if help_answer is not None:
         return help_answer
@@ -199,6 +201,19 @@ def answer(state, kind, value, texts):
     if restart is not None:
         return restart
     return [with_restart(state, m, t) for m in _answer(state, kind, value, words, t)]
+
+
+def _from_link(state, t):
+    """The ready-made first message of one of our links ("…#101", task 3.3b),
+    from a customer who already has an album. It's never a title, an answer or
+    a message for the owner (owner's phone test, Nov 26, 2026: after a paid
+    album it went to the owner). A paid album: a new album starts (the paid
+    one is kept). Otherwise: the question of the step they're at, again."""
+    if state["step"] == "paid":
+        state.clear()
+        state.update(new_state())
+        return _answer(state, "text", "", "", t)   # the welcome and the design buttons
+    return [with_restart(state, m, t) for m in _step_prompt(state, t)]
 
 
 def _today():
@@ -370,7 +385,7 @@ def _answer(state, kind, value, words, t):
         if (kind == "button" and value == "cover_no") or words in _word_list(t, "no_words"):
             state["title"] = None
             return _finish(state, t)
-        if (kind == "button" and value == "cover_yes") or words in _word_list(t, "yes_words"):
+        if (kind == "button" and value == "cover_yes") or _says_yes(words, t):
             state["step"] = "title"
             return [_title_request(t)]
         if kind == "text" and words:
@@ -379,9 +394,11 @@ def _answer(state, kind, value, words, t):
         return [_cover_buttons(t, state)]
 
     if step == "title":
-        if kind == "button" and value == "cover_no":
+        if (kind == "button" and value == "cover_no") or words in _word_list(t, "no_words"):
             state["title"] = None
             return _finish(state, t)
+        if kind == "text" and words in _word_list(t, "yes_words"):
+            return [_title_request(t, "editing" in state["notes"])]   # "כן" isn't a title
         if kind == "text" and words:
             return _save_title(state, value, t)
         return [_title_request(t, "editing" in state["notes"])]
@@ -601,8 +618,8 @@ def _shipping(state, kind, value, words, t):
     if field == "phone" and _tapped(kind, value, words, "ship_phone_this",
                                     t["button_ship_phone_this"]):
         answer = local_phone(state.get("wa_number"))
-    elif kind == "text" and words:
-        answer = _ship_value(field, value)
+    elif kind == "text" and value.strip():
+        answer = _ship_value(field, value)   # (only emojis: the "for example…" hint)
     else:
         return [_ship_question(state, field, t)]
     if not answer:
@@ -1210,7 +1227,24 @@ def _once(state, note, messages):
 
 
 def _clean(text):
-    return " ".join((text or "").split()).strip(" .!?").lower()
+    """Typed text, ready to compare with a button or a word list: only letters,
+    digits and single spaces (owner's phone test, Nov 26, 2026: "כן להוסיף"
+    without the comma didn't match the button "כן, להוסיף" and became the
+    cover title). Used only for comparing, never saved."""
+    kept = "".join(c if c.isalnum() else " " for c in text or "")
+    return " ".join(kept.split()).lower()
+
+
+# At the "title on the cover?" question, a short answer that starts with one of
+# these means yes ("כן בבקשה", "בטח, נשמח"); longer texts are taken as the title.
+YES_START_WORDS = 4
+
+
+def _says_yes(words, t):
+    """Typed yes: a yes word, or a short text that starts with one."""
+    yes = _word_list(t, "yes_words")
+    first = words.split(" ", 1)[0] if words else ""
+    return words in yes or (first in yes and len(words.split()) <= YES_START_WORDS)
 
 
 def _word_list(t, key):

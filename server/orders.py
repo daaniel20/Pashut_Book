@@ -148,7 +148,12 @@ class Orders:
             self._sources[phone] = (source[0], source[1], time.monotonic())
             self.record(state["order_id"], "source", state=state, detail=source[0],
                         info=source[1])
-        replies, photo = self._answer(phone, kind, value, texts)
+        # A message from one of our links is never an answer (conversation._from_link).
+        state["from_link"] = bool(source and source[0] and kind == "text")
+        try:
+            replies, photo = self._answer(phone, kind, value, texts)
+        finally:
+            state.pop("from_link", None)
         self._record_message(phone, before, kind, value, replies, photo, texts)
         return replies, photo
 
@@ -570,6 +575,11 @@ class Orders:
         Never raises: the history must not get in the customer's way."""
         if not self.history or not order_id:
             return
+        if state is None and "step" not in values:
+            # e.g. the album page's visits (bot.py): use the customer's state, if
+            # the bot has this order in memory (owner's test of 3.3b: "step -").
+            state = next((st for st in list(self._states.values())
+                          if st.get("order_id") == order_id), None)
         if state is not None:
             values.setdefault("step", state.get("step"))
             values.setdefault("photos", state.get("photos"))

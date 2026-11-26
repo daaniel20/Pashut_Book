@@ -130,8 +130,11 @@ def _commit_from_files(folder):
 # ---------- where the customer came from ----------
 
 # A source code in the ready-made first message of our wa.me links, e.g.
-# "שלום, אשמח לאלבום #fb1". Starts with a letter, so "#1" in a title isn't one.
-_SOURCE = re.compile(r"#([A-Za-z][A-Za-z0-9_-]{1,19})\b")
+# "שלום, אשמח לאלבום #101". Either a number of 3-6 digits (owner's choice, Nov 26,
+# 2026: the first digit is the channel, e.g. 1xx Facebook, 2xx WhatsApp groups),
+# or letters that start with a letter ("#fb1"). So "#1" in a title isn't a code.
+_SOURCE = re.compile(r"#(\d{3,6}|[A-Za-z][A-Za-z0-9_-]{1,19})\b")
+CODE = re.compile(r"\d{3,6}|[a-z][a-z0-9_-]{1,19}")
 
 
 def read_source(message):

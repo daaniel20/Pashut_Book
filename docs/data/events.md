@@ -24,7 +24,7 @@ Rules for every row (CLAUDE.md rules 5 and 10): numbers and short codes only. **
 
 | Event | Meaning |
 |---|---|
-| `source` | Where the customer came from. `detail` = the code: from `#code` in the ready-made first message of one of our wa.me links (e.g. `fb1`), or `ad` / `post` for a click on a Meta "click to WhatsApp" ad. `info`: `ad_id`, `type`, `media`, `from_ad` (Meta ads only); `carried: true` = the code came with an earlier message and the customer then started a new album within a day. |
+| `source` | Where the customer came from. `detail` = the code: from `#code` in the ready-made first message of one of our wa.me links (a 3-digit number whose first digit is the channel, e.g. `101` = Facebook post 1, `204` = WhatsApp group 4; the list is in guide 3.3b, step 5), or `ad` / `post` for a click on a Meta "click to WhatsApp" ad. `info`: `ad_id`, `type`, `media`, `from_ad` (Meta ads only); `carried: true` = the code came with an earlier message and the customer then started a new album within a day. |
 
 ## Messages (task 3.3b)
 
