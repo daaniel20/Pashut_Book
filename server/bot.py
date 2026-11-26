@@ -154,11 +154,11 @@ def send(to, message):
         return False
 
 
-def save_photo_safely(order_id, number, media):
+def save_photo_safely(phone, order_id, number, media):
     try:
         save_photo(db, whatsapp, order_id, number, media,
                    on_size=lambda side: orders.photo_size(order_id, number, side),
-                   record=lambda event, **values: orders.record(order_id, event, **values))
+                   record=lambda event, **values: orders.record_for(phone, order_id, event, **values))
     except Exception:
         log.exception("Something went wrong while saving a photo")
     finally:
@@ -195,7 +195,7 @@ def handle_notice(data):
                         replies, photo = problem_notice(sender), None
                 if photo:
                     order_id, number = photo
-                    photo_savers.submit(save_photo_safely, order_id, number, value)
+                    photo_savers.submit(save_photo_safely, sender, order_id, number, value)
                 for number, reply in enumerate(replies):
                     send(sender, reply)
                     if reply.get("video_file") and number < len(replies) - 1:
