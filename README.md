@@ -30,7 +30,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 2. The bot replies in Hebrew (other languages later) and briefly explains the process.
 3. The customer picks one of **2 designs** by tapping a button (for example "Classic" or "Colorful").
 4. The bot explains how to send photos in **HD** quality.
-5. The customer sends **up to 50–100 photos** (the exact limit is still to be decided).
+5. The customer sends **up to 100 photos** (40–100 recommended).
 6. The customer can add an optional cover title.
 7. **Automatic step:** the system checks photo quality, removes duplicates and blurry photos, sorts by date, picks a cover, and builds the album.
 8. The customer gets **small page images with a "PREVIEW" watermark**. They never get the PDF, so they can't print it elsewhere.
@@ -53,7 +53,7 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 - **Seasonal calendar:** holidays, the end of the school year, after summer trips.
 - **Target:** the cost to win one paying customer from ads is **at most half** of our profit per album (before ads). This rule is the single source of truth for ad spending.
   - **Profit per album (before ads) = price − printing − payment fees − packaging and other small costs.** Shipping is left out: the customer pays it, and it costs us the same amount.
-  - Current estimate: ₪150 (price, not final) − ₪50 (printing, a guess until the printer quote) − ₪3.6 (payment fees, 2% of ₪180 incl. shipping) − ₪13 (packaging ₪5, AI and WhatsApp ₪3, reprint margin ₪5) = **about ₪83**. Half of that = **about ₪42**.
+  - Current estimate: ₪150 (starting price, S.1) − ₪50 (printing, a guess until the printer quote) − ₪3.6 (payment fees, 2% of ₪180 incl. shipping) − ₪13 (packaging ₪5, AI and WhatsApp ₪3, reprint margin ₪5) = **about ₪83**. Half of that = **about ₪42**.
   - Recalculate whenever the price, printing cost or payment method changes. The [ROI calculator (Google Sheet)](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit) does this automatically.
 
 ---
@@ -106,10 +106,10 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 | Design | Fully automatic, with 2 basic designs to choose from |
 | Quality control | A person checks every album before printing |
 | Preview | Small page images with a watermark. Never the PDF. |
-| Changes | A limited number of simple changes (exact number to be decided). Done by hand at first. |
+| Changes | Up to **5 of each kind** per album (title, design, cover photo, replace/remove a photo, add photos). Decided Nov 25, 2026 (CLAUDE.md rule 11). |
 | Photos | Sent in WhatsApp using the HD option. Low-quality photos go only in small spots on a page. |
-| Photo limit | 50–100 photos per album (to be decided) |
-| Price | ₪100–300 per album, before shipping (to be decided) |
+| Photo limit | **Up to 100 photos** per album, 40–100 recommended (decided S.1, Nov 26, 2026) |
+| Price | **₪150 per album + ₪30 shipping** (starting price, S.1, Nov 26, 2026). Recheck in the ROI calculator when the printer quote (S.2) arrives. Note: at ₪150 the calculator allows only ₪36 of ads per customer (guess: ₪40), so it fits friends and family; for paid ads, ₪180+ passes the rule |
 | Printing | A local printer at first (easy to automate). Lupa is an option later. |
 | WhatsApp | Only the **official** Meta platform. Unofficial tools risk a number ban. |
 | Hosting | The Mac Mini at home at first. Move to the cloud at about 30–50 albums a month. |
@@ -118,10 +118,8 @@ Everything happens in WhatsApp, which everyone already knows how to use. The sys
 
 ## Open questions
 
-- Exact photo limit (50 or 100)
-- Exact price. The [ROI calculator](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit) is built; the final price waits for the printer quote and the first 10 albums.
-- How many free changes per album
-- Which local printer to use, and the album size and number of pages
+- Final price: starting at ₪150 + ₪30 shipping. The [ROI calculator](https://docs.google.com/spreadsheets/d/1ZCKRQZeCI5KIRq7gG5fmPfoNe2K_A7gINmlTygY1NUw/edit) is built; the final price waits for the printer quote and the first 10 albums.
+- Which local printer to use, and the album size and number of pages (S.2: quote requests, guide `docs/setup/S.2-printer-quote.md`)
 - Which payment company to use (later)
 - Name and branding
 - Whether WhatsApp HD photos print well enough at full-page size
