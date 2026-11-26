@@ -884,21 +884,23 @@ class AlbumMessagesTest(unittest.TestCase):
         self.assertEqual((state["step"], state["photos"]), ("hd_question", 5))   # nothing deleted yet
         self.assertNotIn("resend_photos", state)
         talk(state, "photo")                          # the first new photo replaces the old ones
-        self.assertEqual((state["step"], state["photos"]), ("photos", 1))
-        self.assertTrue(state.pop("resend_photos"))
+        # ...except the chosen cover photo, which stays as photo 1 (task 1.2b).
+        self.assertEqual((state["step"], state["photos"]), ("photos", 2))
+        self.assertEqual(state.pop("resend_photos"), 1)   # orders.py keeps photo 1
+        self.assertEqual(conversation.cover_photo(state), 1)
         for _ in range(3):
             talk(state, "photo")
         replies = talk(state, "button", "photos_done")
         # The cover was already answered: straight to the summary.
         self.assertEqual(state["step"], "done")
         self.assertIn("הטיול", replies[0]["text"])
-        self.assertIn("4", replies[0]["text"])
+        self.assertIn("5", replies[0]["text"])
 
     def test_photo_instead_of_tapping_starts_the_resend(self):
         state = self.finished_state()
         state["step"] = "hd_question"
         replies = talk(state, "photo")
-        self.assertEqual((state["step"], state["photos"]), ("photos", 1))
+        self.assertEqual((state["step"], state["photos"]), ("photos", 2))   # the cover stays
         self.assertTrue(state["resend_photos"])
         self.assertEqual(button_ids(replies[0]), [])   # "done" comes after the photos
 
@@ -1249,9 +1251,9 @@ class EarlyHdQuestionTest(unittest.TestCase):
         self.assertEqual(state["photos"], 6)              # nothing deleted yet
         talk(state, "photo")
         self.assertTrue(state.pop("resend_photos"))
-        self.assertEqual((state["step"], state["photos"]), ("photos", 1))
+        self.assertEqual((state["step"], state["photos"]), ("photos", 2))   # the cover stays
         self.assertNotIn("hd_early", state["notes"])
-        for _ in range(4):
+        for _ in range(3):
             talk(state, "photo")
         replies = conversation.photos_settled(state, TEXTS, without_hd=True)   # asked only once
         self.assertIn("קיבלנו 5 תמונות", replies[0]["text"])
@@ -1369,13 +1371,17 @@ class HdResendTextsTest(unittest.TestCase):
         conversation.photos_settled(state, TEXTS, without_hd=True)
         replies = talk(state, "button", "hd_help")
         self.assertTrue(replies[0]["text"].startswith("⚠️"))
-        self.assertIn("(53 תמונות) יימחקו", replies[0]["text"].split("\n\n")[0])
+        # 53 photos: the cover stays, 52 are deleted (task 1.2b).
+        self.assertIn("(52 תמונות) יימחקו", replies[0]["text"].split("\n\n")[0])
+        self.assertNotIn("כריכה", replies[0]["text"])      # owner: no need to say it stays
         replies = talk(state, "photo")
         self.assertIn("נמחקו", replies[0]["text"])
+        self.assertIn("נודיע לכם", replies[0]["text"])     # says the wait (owner's test)
+        self.assertNotIn("ללחוץ", replies[0]["text"])      # not "no need to tap" above a button
         for _ in range(9):
             talk(state, "photo")
         replies = conversation.photos_settled(state, TEXTS)
-        self.assertIn("קיבלנו 10 תמונות ב-HD 👍 (במקום 53 הקודמות)", replies[0]["text"])
+        self.assertIn("קיבלנו 11 תמונות ב-HD 👍 (במקום 53 הקודמות)", replies[0]["text"])
         self.assertEqual(button_ids(replies[0]), ["photos_done"])
         talk(state, "button", "photos_done")
         self.assertNotIn("resent_from:53", state["notes"])

@@ -97,14 +97,25 @@ class Database:
         self._call("POST", f"/storage/v1/object/{BUCKET}/{quote(path)}", raw=data,
                    content_type=mime_type, extra_headers={"x-upsert": "true"})
 
-    def delete_order_photos(self, order_id):
-        """Delete all of an order's photo files and their rows."""
-        rows = self._call("GET", "/rest/v1/photos?select=storage_path&order_id=eq."
+    def delete_order_photos(self, order_id, keep=None):
+        """Delete all of an order's photo files and their rows. keep: the number
+        of one photo to keep (the cover, when resending in HD, task 1.2b); it
+        becomes photo 1, so the new photos are 2, 3, …"""
+        rows = self._call("GET", "/rest/v1/photos?select=id,number,storage_path&order_id=eq."
                           + quote(order_id))
-        paths = [row["storage_path"] for row in rows]
+        kept = [row for row in rows if keep and row["number"] == keep]
+        paths = [row["storage_path"] for row in rows if row not in kept]
         if paths:
             self._call("DELETE", f"/storage/v1/object/{BUCKET}", {"prefixes": paths})
-        self._call("DELETE", "/rest/v1/photos?order_id=eq." + quote(order_id))
+        where = "/rest/v1/photos?order_id=eq." + quote(order_id)
+        self._call("DELETE", where + (f"&number=neq.{keep}" if kept else ""))
+        if kept and keep != 1:
+            old = kept[0]["storage_path"]
+            new = f"{order_id}/001" + old[old.rfind("."):]
+            self._call("POST", "/storage/v1/object/move",
+                       {"bucketId": BUCKET, "sourceKey": old, "destinationKey": new})
+            self._call("PATCH", "/rest/v1/photos?id=eq." + quote(kept[0]["id"]),
+                       {"number": 1, "storage_path": new})
         return len(paths)
 
     def bucket(self):

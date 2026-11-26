@@ -164,7 +164,9 @@ class Orders:
             # The customer is sending their photos again in HD: delete the old ones
             # first, so the new photo 1, 2, 3… don't clash with them.
             try:
-                count = self.db.delete_order_photos(state["order_id"])
+                # The cover photo stays (owner's test, task 1.2b): it becomes photo 1.
+                keep = resend if resend is not True else None
+                count = self.db.delete_order_photos(state["order_id"], keep=keep)
                 self._sizes.pop(state["order_id"], None)
                 log.info("Deleted %s photos of order %s (resending in HD)",
                          count, short(state["order_id"]))
