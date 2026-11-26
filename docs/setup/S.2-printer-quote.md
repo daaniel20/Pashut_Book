@@ -86,6 +86,17 @@ Use your business email if it works, otherwise your own. Don't attach customer p
 
 ---
 
+## Sent so far
+
+| Date | To | How | Reply |
+|---|---|---|---|
+| Nov 26, 2026 | דיפרינט — dprint@dprint.co.il | email from hello@pashutbook.com | |
+| Nov 26, 2026 | C-Book — service@cbook.co.il | email | |
+| Nov 26, 2026 | פוקוס דיגיטל — office@fdprint.co.il | email | |
+| Nov 26, 2026 | מישלי ארט — mishelyart@gmail.com | email | |
+
+Each sent separately, same subject and text. No reply in 3 working days → one short follow-up email or a phone call.
+
 ## 3. What to look for in the replies
 
 | Matters most | Why |
