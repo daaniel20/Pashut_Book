@@ -41,7 +41,7 @@ from urllib.parse import parse_qs, urlparse
 
 import conversation
 import preview_links
-from album_job import AlbumJobs, album_numbers
+from album_job import AlbumJobs, album_numbers, album_removable
 from cover_check import CoverChecks
 from database import Database, DatabaseError
 from orders import Orders, save_photo
@@ -351,6 +351,7 @@ def main():
     orders.on_payment = owner.payment                 # task 3.2
     orders.on_help = owner.help_request               # "עזרה" (task 3.2)
     orders.album_numbers = album_numbers              # task 3.2
+    orders.album_removable = album_removable
     if not owner.owner:
         log.warning("OWNER_PHONE is not set in .env: albums can't be sent to you for "
                     "approval. See docs/setup/3.1-owner-approval.md")

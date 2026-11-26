@@ -981,6 +981,16 @@ class PhotoChangeTest(unittest.TestCase):
             talk(state, "text", number)
             self.assertEqual(state["step"], "photo_number")
 
+    def test_a_photo_alone_on_its_page_may_be_only_replaced(self):
+        state = self.finished()
+        talk(state, "button", "edit_photo")
+        talk(state, "text", "3")
+        state["album_removable"] = {4, 5}       # what orders.py reads from the album
+        replies = talk(state, "button", "photo_remove")
+        self.assertEqual(state["step"], "photo_action")
+        self.assertNotIn("removed:3", state["notes"])
+        self.assertEqual(button_ids(replies[0]), ["photo_replace", "no_change"])
+
     def test_keep_as_it_was(self):
         state = self.finished()
         talk(state, "button", "edit_photo")
@@ -1008,62 +1018,101 @@ class PhotoChangeTest(unittest.TestCase):
 
 
 class AddressPaymentTest(unittest.TestCase):
-    """Task 3.2: after the owner approves: the address, then the payment."""
+    """Task 3.2: after the owner approves: the shipping details one by one
+    (owner's phone test, Nov 26, 2026), then the payment."""
 
     def approved(self):
         state = PhotoChangeTest.finished(None)
         state["notes"] += ["preview_ok", "approved"]
         conversation.owner_approved(state)    # orders.py, when the owner approves
+        state["wa_number"] = "972501112222"   # orders.py adds it to every message
         return state
 
-    def test_address_then_payment(self):
+    def fill(self, state):
+        talk(state, "text", "רחל כהן")
+        talk(state, "text", "הרצל 12 דירה 3")
+        talk(state, "text", "תל אביב")
+        return talk(state, "button", "ship_phone_this")
+
+    def test_one_question_each_then_payment(self):
         state = self.approved()
-        self.assertEqual(state["step"], "address")
-        replies = talk(state, "text", "דנה כהן\nהרצל 5\n  תל אביב\n050-1112222")
-        self.assertEqual(state["address"], "דנה כהן\nהרצל 5\nתל אביב\n050-1112222")
-        self.assertEqual(state["step"], "address_check")
-        self.assertIn("הרצל 5", replies[0]["text"])
-        self.assertEqual(button_ids(replies[0]), ["address_ok", "address_fix"])
+        self.assertEqual(state["step"], "ship_name")
+        replies = talk(state, "text", "  רחל   כהן ")
+        self.assertEqual(state["step"], "ship_street")
+        self.assertIn("✅ שם: רחל כהן", replies[0]["text"])      # what was saved
+        self.assertIn("רחוב", replies[0]["text"])                # and the next question
+        self.assertEqual(button_ids(replies[0]), ["fix_name"])
         self.assertFalse(has_restart(replies[0]))
+        replies = talk(state, "text", "הרצל 12 דירה 3")
+        self.assertEqual(button_ids(replies[0]), ["fix_street"])
+        replies = talk(state, "text", "תל אביב")
+        self.assertEqual(button_ids(replies[0]), ["ship_phone_this", "fix_city"])
+        replies = talk(state, "button", "ship_phone_this")
+        self.assertEqual(state["ship"], {"name": "רחל כהן", "street": "הרצל 12 דירה 3",
+                                         "city": "תל אביב", "phone": "050-111-2222"})
+        self.assertEqual(state["step"], "address_check")
+        self.assertIn("הרצל 12 דירה 3, תל אביב", replies[0]["text"])
+        self.assertEqual(button_ids(replies[0]), ["address_ok", "address_fix"])
         replies = talk(state, "button", "address_ok")
         self.assertEqual(state["step"], "payment")
         self.assertTrue(state.pop("ask_payment"))     # orders.py tells the owner
         price, shipping, total = conversation.payment_amounts()
         self.assertEqual(state["price"], total)
         self.assertIn(f"₪{total}", replies[0]["text"])
-        self.assertIn("ביט", replies[0]["text"])
         self.assertIn("payment_wait", state["notes"])
-        replies = talk(state, "text", "שילמתי")
+        talk(state, "text", "שילמתי")
         self.assertEqual(state.pop("for_owner"), "שילמתי")
         conversation.owner_paid(state)
         self.assertEqual(state["step"], "paid")
         self.assertNotIn("payment_wait", state["notes"])
 
-    def test_a_short_address_asks_again(self):
+    def test_wrong_details_are_asked_again(self):
         state = self.approved()
-        replies = talk(state, "text", "חיפה")
-        self.assertEqual(state["step"], "address")
-        self.assertIn("חסרים", replies[0]["text"])
+        replies = talk(state, "text", "😊")
+        self.assertEqual(state["step"], "ship_name")
+        self.assertIn("למשל", replies[0]["text"])
+        talk(state, "text", "רחל כהן")
+        talk(state, "text", "הרצל")                          # no house number
+        self.assertEqual(state["step"], "ship_street")
+        talk(state, "text", "הרצל 12")
+        talk(state, "text", "98789")                         # not a city
+        self.assertEqual(state["step"], "ship_city")
+        talk(state, "text", "חיפה")
+        talk(state, "text", "12345")                         # not a mobile number
+        self.assertEqual(state["step"], "ship_phone")
+        talk(state, "text", "+972 52-333-4444")
+        self.assertEqual(state["ship"]["phone"], "052-333-4444")
 
-    def test_fix_the_address(self):
+    def test_fix_a_detail_right_away_then_carry_on(self):
         state = self.approved()
-        talk(state, "text", "רחוב הגפן 1, חיפה")
-        talk(state, "button", "address_fix")
-        self.assertEqual(state["step"], "address")
-        talk(state, "text", "רחוב הגפן 3, חיפה, 0501234567")
-        self.assertIn("3", state["address"])
-        # Typing a new address instead of tapping also works.
-        talk(state, "text", "רחוב הזית 9, עכו, 0501234567")
-        self.assertEqual(state["step"], "address_check")
-        self.assertIn("הזית", state["address"])
+        talk(state, "text", "רחל כהנ")
+        talk(state, "text", "הרצל 12")                       # now at the city question
+        replies = talk(state, "button", "fix_street")
+        self.assertEqual(state["step"], "ship_street")
+        replies = talk(state, "text", "הרצל 14")
+        self.assertEqual(state["step"], "ship_city")         # back where they were
+        self.assertIn("✅ רחוב: הרצל 14", replies[0]["text"])
+        self.assertEqual(state["ship"]["street"], "הרצל 14")
+
+    def test_fix_one_detail_from_the_summary(self):
+        state = self.approved()
+        self.fill(state)
+        replies = talk(state, "button", "address_fix")
+        self.assertEqual(button_ids(replies[0]),
+                         ["fix_name", "fix_street", "fix_city", "fix_phone"])
+        talk(state, "button", "fix_city")
+        replies = talk(state, "text", "רמת גן")
+        self.assertEqual(state["step"], "address_check")      # straight back to the summary
+        self.assertIn("רמת גן", replies[0]["text"])
+        self.assertEqual(state["ship"]["name"], "רחל כהן")    # the rest is kept
 
     def test_the_album_cant_be_changed_after_approval(self):
         state = self.approved()
         replies = talk(state, "button", "edit_menu")
         self.assertIn("כבר אושר", replies[0]["text"])
         self.assertIn("עזרה", replies[0]["text"])        # the only way to the owner
-        self.assertIn("לאן לשלוח", replies[-1]["text"])  # and the address question again
-        self.assertEqual(state["step"], "address")
+        self.assertIn("השם המלא", replies[-1]["text"])    # and the question again
+        self.assertEqual(state["step"], "ship_name")
         talk(state, "photo")
         self.assertEqual(state["photos"], 6)              # photos aren't added any more
 
@@ -1071,6 +1120,12 @@ class AddressPaymentTest(unittest.TestCase):
         state = self.approved()
         replies = talk(state, "text", "אלבום חדש")
         self.assertIn("נשמר", replies[0]["text"])
+
+    def test_phone_numbers(self):
+        for typed in ("0501234567", "050-123-4567", "+972 50 123 4567", "972501234567"):
+            self.assertEqual(conversation.local_phone(typed), "050-123-4567")
+        for typed in ("12345", "031234567", ""):
+            self.assertIsNone(conversation.local_phone(typed))
 
 
 class HelpTest(unittest.TestCase):

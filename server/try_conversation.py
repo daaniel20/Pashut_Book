@@ -32,7 +32,16 @@ COVER_RESULTS = {
     "blurry": {"ok": False, "problem": "blurry", "dpi": 300, "without_hd": False},
 }
 state = conversation.new_state()
+PRETEND_NUMBER = "972500000000"   # the customer's WhatsApp number (for "📱 this number")
 buttons = []
+
+
+def answer(state, kind, value, texts):
+    state["wa_number"] = PRETEND_NUMBER
+    try:
+        return conversation.answer(state, kind, value, texts)
+    finally:
+        state.pop("wa_number", None)
 
 
 def show(replies):
@@ -66,7 +75,7 @@ while True:
         count = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
         cover = parts[1] if len(parts) > 1 and parts[1] in COVER_RESULTS else "good"
         for _ in range(count):
-            show(conversation.answer(state, "photo", None, texts))
+            show(answer(state, "photo", None, texts))
             number = conversation.checking_cover(state)
             if number:
                 print(f"   (checking the cover photo: {cover})")
@@ -83,9 +92,9 @@ while True:
         conversation.owner_paid(state)
         show([{"text": texts["paid_customer"]}])
     elif typed == "/video":
-        show(conversation.answer(state, "other", "video", texts))
+        show(answer(state, "other", "video", texts))
     elif typed.isdigit() and 1 <= int(typed) <= len(buttons) and state["step"] != "photo_number":
-        show(conversation.answer(state, "button", buttons[int(typed) - 1]["id"], texts))
+        show(answer(state, "button", buttons[int(typed) - 1]["id"], texts))
     else:
-        show(conversation.answer(state, "text", typed, texts))
+        show(answer(state, "text", typed, texts))
     print(f"   (step: {state['step']}, photos: {state['photos']})")

@@ -68,17 +68,19 @@ def left_out_reason(result):
     return "blurry"
 
 
-def build(photos, design, title, folder, cover=None, cover_kept=False, replaced=None):
+def build(photos, design, title, folder, cover=None, cover_kept=False, replaced=None,
+          removed=()):
     """Check, plan and draw an album. photos is a list of (name, bytes).
     cover_kept: the customer was told the cover photo is blurry or small and kept it.
-    replaced: {old photo name: new photo name}, photos the customer replaced
-    (task 3.2): if nothing else changed, each new photo takes its old photo's
-    spot and the rest of the album stays as it was."""
+    replaced: {old photo name: new photo name} and removed: photo names, the
+    customer's changes by photo number (task 3.2): the album they saw is kept,
+    and only those photos' spots or pages change (layout.change_photos)."""
     results = quality.check_all(photos)
     info = summary(results)
     album = layout.make_album(results, design, title, cover, cover_kept)
-    if replaced:
-        album = layout.keep_places(_old_album(folder), album, replaced, results)
+    if replaced or removed:
+        album = layout.change_photos(_old_album(folder), album, results, replaced or {},
+                                     set(removed), title, cover)
     box = render.PhotoBox(photos)
     folder.mkdir(parents=True, exist_ok=True)
     for old in [*folder.glob("*.jpg"), *folder.glob("print-*.pdf")]:
@@ -219,7 +221,8 @@ def order_photos(which):
 def changed_photos(order, photos):
     """Task 3.2: the customer's photo changes, from the order's notes:
     "removed:N" (photo N is left out) and "replaced:N:M" (photo M takes photo
-    N's place). Returns (the photos in album order, {old name: new name})."""
+    N's place). Returns (the photos in album order, {old name: new name},
+    the removed photos' names)."""
     photos = list(photos)
     names = [name for name, _ in photos]
     replaced = {}
@@ -235,7 +238,7 @@ def changed_photos(order, photos):
                 index = names.index(old)
                 photos[index], names[index] = entry, new
     removed = {f"photo {int(n.split(':')[1]):03d}" for n in notes if n.startswith("removed:")}
-    return [p for p in photos if p[0] not in removed], replaced
+    return [p for p in photos if p[0] not in removed], replaced, removed
 
 
 def _chosen_cover(order):
@@ -268,7 +271,7 @@ def main():
         folder = OUTPUT_DIR / order["id"][:8]
         cover = options["--cover"] or _chosen_cover(order)
         cover_kept = "cover_kept" in (order.get("notes") or []) and not options["--cover"]
-        photos, replaced = changed_photos(order, photos)
+        photos, replaced, removed = changed_photos(order, photos)
     elif len(rest) == 1 and not rest[0].startswith("--"):
         photos = photos_from_folder(rest[0])
         design = options["--design"] or "classic"
@@ -276,7 +279,7 @@ def main():
         folder = OUTPUT_DIR / Path(rest[0]).expanduser().name
         cover = options["--cover"]
         cover_kept = False
-        replaced = None
+        replaced, removed = None, ()
     else:
         sys.exit(__doc__)
     if design not in designs.DESIGNS:
@@ -287,7 +290,7 @@ def main():
     else:
         print(f"Building a {design} album from {len(photos)} photos…", file=sys.stderr)
         try:
-            info = build(photos, design, title, folder, cover, cover_kept, replaced)
+            info = build(photos, design, title, folder, cover, cover_kept, replaced, removed)
         except ValueError as error:   # e.g. no usable photos
             info = dict(summary(quality.check_all(photos)), error=str(error))
 

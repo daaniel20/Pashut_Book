@@ -161,6 +161,27 @@ def album_numbers(order_id):
     return numbers
 
 
+def album_removable(order_id):
+    """The numbers of the photos the customer may remove (task 3.2): a photo
+    that shares its page always; a photo alone on its page only if the album
+    stays at least its minimum length without that page. None if unknown."""
+    path = PROJECT_DIR / "output" / "albums" / short(order_id) / "layout.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pages = [[spot["photo"] for spot in page["spots"]] for page in data["pages"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    content = [names for names in pages if names]
+    shorter = len(content) - 1 + (len(content) - 1) % 2   # without one page, kept even
+    page_may_go = shorter >= data.get("min_pages", 20)
+    removable = set()
+    for names in content:
+        if len(names) > 1 or page_may_go:
+            removable.update(int(n[6:]) for n in names
+                             if isinstance(n, str) and n.startswith("photo ") and n[6:].isdigit())
+    return removable
+
+
 def needs_hd(info):
     return info["photos"] > 0 and info["without_hd"] >= WITHOUT_HD_SHARE * info["photos"]
 
