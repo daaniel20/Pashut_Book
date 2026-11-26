@@ -19,6 +19,19 @@ I found these online (Nov 26, 2026). I could not check their prices for a 20×20
 | 4 | **לופה** — [lupa.co.il](https://www.lupa.co.il/) | The best-known album maker in Israel. Ask if they print a ready PDF for a business | Retail prices on their site |
 | 5 | **מישלי ארט** — [mishely-art.com](https://www.mishely-art.com/%D7%9E%D7%97%D7%99%D7%A8%D7%95%D7%9F-%D7%90%D7%9C%D7%91%D7%95%D7%9E%D7%99%D7%9D) | Has an album price list | Price list on their site |
 
+### More labs (added Nov 26, 2026, Lupa has no email)
+
+| # | Lab | Why | Seen online |
+|---|---|---|---|
+| 11 | **פלאש אלבום** — [flashalbum.co.il](https://www.flashalbum.co.il/photographers-lab/) | A lab **for event photographers**: they send ready images, the lab makes the album. Closest to what we need | page may be old: check |
+| 12 | **חדר צילום** — [photoroom.co.il](https://photoroom.co.il/albums/) | Professional lab, several album types (LayFlat, Magazine, Simple) | ~14 working days (slow: ask about faster) |
+| 13 | **סטודיו 62** — [studio62.co.il](https://www.studio62.co.il/digital-albums) | Old Tel Aviv lab working for photographers, several album types | |
+| 14 | **צילומי חן** — [zilum-chen.co.il](https://zilum-chen.co.il/) | Tel Aviv lab since 1983, digital albums | |
+| 15 | **פוטוגל** — [photogal.co.il](https://photogal.co.il/albums/) | Photo lab and print house, albums with several cover types | |
+| 16 | **היפר פוטו** — [hpo.co.il](https://hpo.co.il/) | Photo lab | |
+
+פוקוס דיגיטל's phone (from search): 03-9561566.
+
 ### Near Kfar Yona (owner's request, Nov 26, 2026)
 
 Close is good: you can pick up the first ~10 books yourself and check them (see ROADMAP.md). Found in business directories; not checked whether they print a whole album from our PDF. Call or visit.
