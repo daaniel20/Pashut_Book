@@ -92,12 +92,17 @@ class FakeDatabase:
         self._check()
         self.files[path] = data
 
-    def delete_order_photos(self, order_id):
-        paths = [p["storage_path"] for p in self.photos if p["order_id"] == order_id]
-        for path in paths:
-            self.files.pop(path, None)
-        self.photos = [p for p in self.photos if p["order_id"] != order_id]
-        return len(paths)
+    def delete_order_photos(self, order_id, keep=None):
+        gone = [p for p in self.photos if p["order_id"] == order_id and p["number"] != keep]
+        for p in gone:
+            self.files.pop(p["storage_path"], None)
+        self.photos = [p for p in self.photos if p not in gone]
+        for p in self.photos:
+            if p["order_id"] == order_id and keep and keep != 1:   # the kept one becomes 1
+                new = f"{order_id}/001" + p["storage_path"][p["storage_path"].rfind("."):]
+                self.files[new] = self.files.pop(p["storage_path"])
+                p.update(number=1, storage_path=new)
+        return len(gone)
 
 
 class FakeWhatsApp:
@@ -385,8 +390,10 @@ class AlbumReadyTest(unittest.TestCase):
         self.say("button", "hd_help")
         self.assertEqual(len(self.db.photos), 3)      # only the how-to: nothing deleted yet
         self.finish(first=10, count=2)                # the first new photo replaces the old ones
-        self.assertEqual(len(self.db.photos), 2)
-        self.assertIn(f"{order_id}/001.jpg", self.db.files)
+        # ...except the cover photo (here photo 1), kept as photo 1 (task 1.2b).
+        self.assertEqual(sorted(p["number"] for p in self.db.photos), [1, 2, 3])
+        self.assertEqual(self.db.files[f"{order_id}/001.jpg"], b"photo bytes https://example/media1")
+        self.assertIn(f"{order_id}/003.jpg", self.db.files)
         self.assertEqual(self.db.orders[0]["step"], "done")
         self.assertEqual(len(self.ready), 2)          # the album starts again
 
@@ -533,3 +540,17 @@ class PhotoSizeTest(unittest.TestCase):
             self.assertEqual(db.orders[0]["step"], "hd_question")
         finally:
             orders.QUIET_SECONDS = 0
+
+
+class KeepCoverOnResendTest(unittest.TestCase):
+    """Task 1.2b: a cover chosen later (not photo 1) is kept and becomes photo 1."""
+
+    def test_the_kept_cover_becomes_photo_1(self):
+        db = FakeDatabase()
+        for n in range(1, 6):
+            db.add_photo({"order_id": "o", "number": n, "wa_media_id": f"m{n}",
+                          "storage_path": f"o/{n:03d}.jpg"})
+            db.files[f"o/{n:03d}.jpg"] = f"photo {n}".encode()
+        self.assertEqual(db.delete_order_photos("o", keep=4), 4)
+        self.assertEqual([(p["number"], p["storage_path"]) for p in db.photos], [(1, "o/001.jpg")])
+        self.assertEqual(db.files, {"o/001.jpg": b"photo 4"})

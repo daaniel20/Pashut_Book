@@ -392,7 +392,8 @@ def _answer(state, kind, value, words, t):
             # A short warning, no clip (they saw it after choosing a design; owner's
             # test, task 1.2b). Nothing is deleted until the first new photo arrives,
             # so they can still change their mind and continue without HD.
-            return [{"text": t["hd_resend_warning"].format(photos=_photos(t, state["photos"])),
+            gone = state["photos"] - (1 if cover_photo(state) else 0)   # the cover stays
+            return [{"text": t["hd_resend_warning"].format(photos=_photos(t, gone)),
                      "buttons": [{"id": "hd_how", "title": t["button_hd_how"]},
                                  {"id": "hd_continue", "title": t["button_hd_continue_no_hd"]}]}]
         if (kind == "button" and value == "hd_how") or words == _clean(t["button_hd_how"]):
@@ -868,7 +869,7 @@ def _on_photo(state, t):
     if step == "hd_question":
         # They're already sending the photos again, in HD.
         _resend_photos(state)
-        state["photos"] = 1
+        state["photos"] += 1
         return [_restart_only(t, t["hd_resending"])]
     if step == "done":
         if state["photos"] >= MAX_PHOTOS:
@@ -982,16 +983,22 @@ def _back_to_photos(state, t):
 
 
 def _resend_photos(state):
-    """Start the photos over. orders.py sees "resend_photos" and deletes the old ones."""
+    """Start the photos over. orders.py sees "resend_photos" and deletes the old
+    ones, except the cover photo the customer chose (owner's test, task 1.2b: it
+    vanished silently). The cover becomes photo 1; the new photos are 2, 3, …
+    (If they send it again in HD, the album uses that sharper copy.)"""
     _set_note(state, "resent_from", state["photos"])   # said in the next count
+    cover = cover_photo(state)
     state["step"] = "photos"
-    state["photos"] = 0
-    state["resend_photos"] = True
-    set_cover_photo(state, None)   # the album picks a cover from the new photos
+    state["photos"] = 1 if cover else 0
+    state["resend_photos"] = cover or True   # the number of the photo to keep
+    set_cover_photo(state, 1 if cover else None)
     _set_note(state, "counted", None)
     _set_note(state, "cover_check", None)
     _set_note(state, "cover_problem", None)
-    for note in ("photo_limit", "not_a_photo", "cover_kept", "hd_early", "video_untold"):
+    old_notes = ("photo_limit", "not_a_photo", "hd_early", "video_untold") + \
+        (() if cover else ("cover_kept",))
+    for note in old_notes:
         if note in state["notes"]:
             state["notes"].remove(note)
     for note in photo_changes(state):
