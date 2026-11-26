@@ -94,8 +94,12 @@ Use your business email if it works, otherwise your own. Don't attach customer p
 | Nov 26, 2026 | C-Book — service@cbook.co.il | email | |
 | Nov 26, 2026 | פוקוס דיגיטל — office@fdprint.co.il | email | |
 | Nov 26, 2026 | מישלי ארט — mishelyart@gmail.com | email | |
+| Nov 26, 2026 | סטודיו 62 — studio62@studio62.co.il | email | |
+| Nov 26, 2026 | צילומי חן — info@zilum-chen.co.il | email | |
+| Nov 26, 2026 | פוטוגל (probably) — galdigital5@gmail.com | email | |
+| Nov 26, 2026 | היפר פוטו (probably) — h026540098@gmail.com | email | |
 
-Each sent separately, same subject and text. No reply in 3 working days → one short follow-up email or a phone call.
+8 sent in total, each separately, same subject and text. Not yet contacted: פלאש אלבום, חדר צילום, לופה (no email), the local shops (visit or call). No reply in 3 working days → one short follow-up email or a phone call.
 
 ## 3. What to look for in the replies
 
