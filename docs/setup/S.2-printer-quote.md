@@ -19,6 +19,21 @@ I found these online (Nov 26, 2026). I could not check their prices for a 20×20
 | 4 | **לופה** — [lupa.co.il](https://www.lupa.co.il/) | The best-known album maker in Israel. Ask if they print a ready PDF for a business | Retail prices on their site |
 | 5 | **מישלי ארט** — [mishely-art.com](https://www.mishely-art.com/%D7%9E%D7%97%D7%99%D7%A8%D7%95%D7%9F-%D7%90%D7%9C%D7%91%D7%95%D7%9E%D7%99%D7%9D) | Has an album price list | Price list on their site |
 
+### Near Kfar Yona (owner's request, Nov 26, 2026)
+
+Close is good: you can pick up the first ~10 books yourself and check them (see ROADMAP.md). Found in business directories; not checked whether they print a whole album from our PDF. Call or visit.
+
+| # | Business | Where | Why | Contact (from directories) |
+|---|---|---|---|---|
+| 6 | **מומנטו מדיה** — [momento.co.il](https://www.momento.co.il/) | Kfar Mall, שרת 6, כפר יונה (also ויצמן 4, נתניה) | Photo shop that sells albums. Many shops send albums to a big lab: **ask which lab prints them**, that lab could become our supplier | 09-8987167, WhatsApp 050-8989237 |
+| 7 | **גולדפרינט** — [goldprint.co.il](https://www.goldprint.co.il/) | Poleg industrial area, נתניה | Digital print shop (prints one copy from a file). Ask about a hardcover photo book | 09-8850771 |
+| 8 | **דפוס המגנטון** — [hamagneton.co.il](https://hamagneton.co.il/%D7%90%D7%95%D7%93%D7%95%D7%AA%D7%99%D7%A0%D7%95/) | נתניה | Print house in the Sharon | on their site |
+| 9 | **דפוס דיגיטל** — [dfusdigital.co.il](https://dfusdigital.co.il/) | location not stated: check | Says it makes **hardcover books** (2 mm board), including photo albums | on their site |
+
+Two in Kfar Yona (טל פרינט, שי הדפסות) print documents and signs, not albums: skip.
+
+**On the phone with a local shop**, add: "אפשר לאסוף בעצמי מהחנות?" (can I pick it up myself?) and "מי מדפיס לכם את האלבומים?" (who prints your albums?).
+
 **Benchmark (no need to contact):** Prodigi, an overseas printer that ships to Israel, about **$25** for a 21×21 hardcover before shipping (see `docs/research-notes.md`, section 6).
 
 ---
