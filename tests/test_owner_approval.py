@@ -138,12 +138,16 @@ class OwnerApprovalTest(unittest.TestCase):
         self.orders.on_payment = self.approvals.send_payment_request
         buttons = self.love_it()
         self.owner("button", buttons[0]["id"])
-        self.assertIn("לאן לשלוח", self.to(CUSTOMER)[-1]["text"])
+        self.assertIn("השם המלא", self.to(CUSTOMER)[-1]["text"])
         row = self.db.orders[0]
-        self.assertEqual((row["step"], row["status"]), ("address", "approved"))
-        self.customer("text", "דנה כהן, הרצל 5, תל אביב, 0501112222")
+        self.assertEqual((row["step"], row["status"]), ("ship_name", "approved"))
+        self.customer("text", "דנה כהן")
+        self.customer("text", "הרצל 5")
+        self.customer("text", "תל אביב")
+        self.customer("text", "0501112222")
         self.customer("button", "address_ok")
-        self.assertEqual(row["shipping_address"], "דנה כהן, הרצל 5, תל אביב, 0501112222")
+        self.assertEqual((row["ship_name"], row["ship_street"], row["ship_city"],
+                          row["ship_phone"]), ("דנה כהן", "הרצל 5", "תל אביב", "050-111-2222"))
         self.assertEqual(row["price"], 180)
         request = self.to(OWNER)[-1]
         self.assertIn("050-000-0000", request["text"])   # the full number, for Bit
@@ -166,7 +170,7 @@ class OwnerApprovalTest(unittest.TestCase):
 
         # After a bot restart, the address and price are still known.
         again = orders.Orders(self.db)
-        self.assertEqual(again.info(CUSTOMER, ORDER)["address"], row["shipping_address"])
+        self.assertEqual(again.info(CUSTOMER, ORDER)["ship"]["city"], "תל אביב")
 
         # Starting a new album keeps the paid one (it isn't cancelled).
         self.customer("text", "אלבום חדש")

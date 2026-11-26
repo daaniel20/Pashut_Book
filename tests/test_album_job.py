@@ -181,6 +181,18 @@ class AlbumNumbersTest(unittest.TestCase):
                     "pages": [{"spots": [{"photo": "photo 002"}, {"photo": "photo 015"}]},
                               {"spots": []}]}))
                 self.assertEqual(album_job.album_numbers("abcdef12-0000"), {2, 15})
+                # Removable: a photo sharing its page; one alone on its page only
+                # if the album stays at its minimum length (here 2 pages) without it.
+                (albums / "layout.json").write_text(json.dumps({
+                    "min_pages": 2, "cover": {"spots": [{"photo": "photo 001"}]},
+                    "pages": [{"spots": [{"photo": "photo 002"}, {"photo": "photo 003"}]},
+                              {"spots": [{"photo": "photo 004"}]},
+                              {"spots": [{"photo": "photo 005"}]}, {"spots": []}]}))
+                self.assertEqual(album_job.album_removable("abcdef12-0000"), {2, 3, 4, 5})
+                data = json.loads((albums / "layout.json").read_text())
+                data["min_pages"] = 4
+                (albums / "layout.json").write_text(json.dumps(data))
+                self.assertEqual(album_job.album_removable("abcdef12-0000"), {2, 3})
             finally:
                 album_job.PROJECT_DIR = real
 

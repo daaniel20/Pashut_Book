@@ -103,6 +103,8 @@ class Orders:
         self.on_help = None      # on_help(phone, order_id, text): a "עזרה" question (3.2)
         # album_numbers(order_id) -> the numbers of the photos inside the album, or None
         self.album_numbers = None
+        # album_removable(order_id) -> the numbers that may be removed, or None
+        self.album_removable = None
 
     def lock_for(self, phone):
         with self._guard:
@@ -127,12 +129,18 @@ class Orders:
         if state["step"] == "photo_number" and self.album_numbers:
             # The customer is typing a photo's number: check it against the album.
             state["album_numbers"] = self.album_numbers(state["order_id"])
+        if state["step"] == "photo_action" and self.album_removable:
+            # Removing a photo alone on its page must not make the album too short.
+            state["album_removable"] = self.album_removable(state["order_id"])
         before = copy.deepcopy(state)
+        state["wa_number"] = phone   # for "📱 this number" (shipping, task 3.2)
         try:
             replies = conversation.answer(state, kind, value, texts)
         finally:
+            state.pop("wa_number", None)
             state.pop("recent_photo", None)
             state.pop("album_numbers", None)
+            state.pop("album_removable", None)
         if kind == "photo":
             self._last_photo[phone] = time.monotonic()
 
@@ -143,6 +151,7 @@ class Orders:
             # started the most albums for today: nothing changes.
             before.pop("recent_photo", None)
             before.pop("album_numbers", None)
+            before.pop("album_removable", None)
             before["notes"] = [n for n in before["notes"] if n != "confirm_restart"]
             self._states[phone] = before
             log.info("Order %s: the customer reached today's new-album limit",
@@ -470,7 +479,8 @@ class Orders:
         """A copy of the order's details (design, title, photos, notes), or None."""
         with self.lock_for(phone):
             state = self._current(phone, order_id)
-            return None if not state else dict(state, notes=list(state["notes"]))
+            return None if not state else dict(state, notes=list(state["notes"]),
+                                               ship=dict(state.get("ship") or {}))
 
     def _current(self, phone, order_id):
         """The customer's state if order_id is still their order (loads it from
@@ -497,9 +507,12 @@ class Orders:
                     "photos": row["photo_count"], "title": row["title"],
                     "notes": list(row["notes"] or []),
                 }
-                for field, column in (("address", "shipping_address"), ("price", "price")):
-                    if row.get(column) is not None:
-                        self._states[phone][field] = row[column]
+                if row.get("price") is not None:
+                    self._states[phone]["price"] = row["price"]
+                ship = {f: row["ship_" + f] for f in conversation.SHIP_FIELDS
+                        if row.get("ship_" + f)}
+                if ship:
+                    self._states[phone]["ship"] = ship
                 if "done_waiting" in self._states[phone]["notes"]:
                     # The bot restarted while waiting for the last photos: don't wait again.
                     self._states[phone]["notes"].remove("done_waiting")
@@ -571,9 +584,10 @@ def _fields(state):
         "notes": state["notes"],
     }
     # Task 3.2. Only once there is one, so the bot keeps working even before
-    # the new columns were added (supabase/3.2-address-and-payment.sql).
-    if state.get("address"):
-        fields["shipping_address"] = state["address"]
+    # the new columns were added (supabase/3.2-address-and-payment.sql and
+    # 3.2b-shipping-fields.sql).
+    for field, value in (state.get("ship") or {}).items():
+        fields["ship_" + field] = value
     if state.get("price"):
         fields["price"] = state["price"]
     return fields

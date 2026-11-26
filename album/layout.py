@@ -104,7 +104,8 @@ class Album:
         return {"design": self.design, "title": self.title,
                 "page_size_mm": [self.width, self.height], "title_place": self.title_place,
                 "cover": page(self.cover), "pages": [page(p) for p in self.pages],
-                "left_out": self.left_out, "notes": self.notes}
+                "left_out": self.left_out, "notes": self.notes,
+                "min_pages": designs.MIN_PAGES}
 
     @classmethod
     def from_dict(cls, data):
@@ -541,14 +542,21 @@ def _fit_photo(spot, photo, full_page=False):
         spot.crop = cut
 
 
-def keep_places(old, new, replaced, photos):
-    """Task 3.2: the customer replaced photos (replaced: {old name: new name}).
-    If the new plan holds the same photos as the old album, with only those
-    swapped, return the OLD album with each new photo in its old photo's spot,
-    so the rest of the album stays exactly as the customer saw it. If a new
-    photo doesn't fit its spot's shape, only its page is laid out again. Otherwise
-    (other changes too, or the design or title changed) return the new plan.
-    photos: the PhotoCheck results (for the new photos' shapes and faces)."""
+def change_photos(old, new, photos, replaced, removed, title, chosen_cover=None):
+    """Task 3.2: the customer replaced or removed photos by their number.
+    Start from the album exactly as the customer saw it (old, from its
+    layout.json) and change only what they asked (owner's phone test, Nov 26,
+    2026: planning the whole album again shuffled every page):
+    - replaced ({old name: new name}): the new photo takes the old one's spot;
+      if it doesn't fit that spot's shape, only its page is laid out again.
+      The customer chose it, so it is used even if it looks like another photo.
+    - removed (names): only its page is laid out again with the photos left;
+      a page left empty goes away and the pages after it move up one page
+      (an empty page is added at the end if the count must stay even).
+    The new plan (new) is used instead when this can't be done: no old album,
+    another design or page size, photos were added, or another cover was chosen.
+    photos: the PhotoCheck results of this build (shapes and faces).
+    title: the cover title now (a new title only redraws the cover)."""
     def final(name):
         seen = set()
         while name in replaced and name not in seen:
@@ -556,40 +564,56 @@ def keep_places(old, new, replaced, photos):
             name = replaced[name]
         return name
 
-    def names(album):
-        return {s.photo for page in [album.cover] + album.pages for s in page.spots if s.photo}
-
-    if old is None or (old.design, old.title, old.width, old.height) != \
-            (new.design, new.title, new.width, new.height):
+    if old is None or (old.design, old.width, old.height) != (new.design, new.width, new.height):
         return new
-    if {final(n) for n in names(old)} != names(new):
-        return new
-    if final(old.cover.spots[0].photo) != old.cover.spots[0].photo:
-        return new   # the cover itself was swapped: let the cover rules decide
     by_name = {p.name: p for p in photos}
+    shown = {s.photo for page in [old.cover] + old.pages for s in page.spots if s.photo}
+    known = {final(n) for n in shown | set(old.left_out)} | set(removed)
+    if set(by_name) - known:
+        return new   # photos were added: the album is planned again
+    old_cover = old.cover.spots[0].photo
+    if old_cover not in by_name:
+        return new
+    if chosen_cover and chosen_cover != old_cover and new.cover.spots[0].photo != old_cover:
+        return new   # another cover photo was chosen
     style = designs.DESIGNS[old.design]
+    if title != old.title:
+        old.title = title
+        old.cover, old.title_place = _cover([by_name[old_cover]], style, title,
+                                            by_name[old_cover])
+    pages = []
     for number, page in enumerate(old.pages):
-        swaps = [(spot, final(spot.photo)) for spot in page.spots
-                 if spot.photo and final(spot.photo) != spot.photo]
-        if not swaps:
+        names = [s.photo for s in page.spots if s.photo]
+        now = [final(n) for n in names]
+        now = [n for n in now if n not in removed and n in by_name]
+        if now == names:
+            pages.append(page)          # untouched
             continue
+        if not now:
+            continue                    # the page's only photo was removed: the page goes
         full = page.template == "full"
-        if all(_cut(by_name[name], spot.width / spot.height, full) is not None
-               for spot, name in swaps):
-            # Every new photo fills its spot (a little trimmed, no face cut):
-            # same spot, the page is untouched otherwise.
+        swaps = [(s, final(s.photo)) for s in page.spots if s.photo and final(s.photo) != s.photo]
+        if len(now) == len(names) and all(
+                _cut(by_name[n], s.width / s.height, full) is not None for s, n in swaps):
+            # Only replaced, and every new photo fills its spot: same spot.
             for spot, name in swaps:
                 spot.photo, spot.crop = name, (0, 0, 1, 1)
                 _fit_photo(spot, by_name[name], full_page=full)
+            pages.append(page)
             continue
-        # A new photo doesn't fit its spot's shape (it would be shown smaller,
-        # with empty space around it): lay out only this page again, with the
-        # same photos; every other page stays as it was (owner's decision, 3.2).
-        group = [by_name[final(s.photo)] for s in page.spots if s.photo]
-        recent = [p.template for p in old.pages[max(0, number - 2):number]]
+        # A new photo of another shape, or a photo removed: lay out only this
+        # page again, with its photos in the same order and the same background.
+        group = [by_name[n] for n in now]
+        recent = [p.template for p in pages[-2:]]
         name, order = _best_template(group, recent, False, style)
-        old.pages[number] = _page(name, order, page.background, style)
-    old.left_out, old.notes = new.left_out, new.notes
+        pages.append(_page(name, order, page.background, style))
+    while pages and pages[-1].template == "empty":
+        pages.pop()
+    while len(pages) % designs.PAGE_MULTIPLE:
+        pages.append(Page("empty", style["backgrounds"][0]))
+    # (The bot doesn't offer removing a photo that would make the album
+    # shorter than designs.MIN_PAGES: album_job.album_removable.)
+    old.pages = pages
     return old
 
 

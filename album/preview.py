@@ -50,9 +50,11 @@ FONT = Path(__file__).resolve().parent / "fonts" / "Rubik.ttf"
 TEXTS_DIR = Path(__file__).resolve().parent.parent / "server" / "texts"
 QUALITY = 80
 # The photo numbers (task 3.2): a dark round badge with a white number, in the
-# photo's top right corner (where a Hebrew reader looks first).
-BADGE_SIZE = 34            # pixels across, on a 700-pixel page
-BADGE_INSET = 7            # pixels from the photo's corner
+# photo's top right corner (where a Hebrew reader looks first). Owner's phone
+# test (Nov 26, 2026): 34 pixels was too small to read on a phone, where a
+# two-page picture is shrunk to the screen's width; now about twice as big, bold.
+BADGE_SIZE = 66            # pixels across, on a 700-pixel page
+BADGE_INSET = 10           # pixels from the photo's corner
 BADGE_COLOUR = (35, 35, 35, 215)
 
 
@@ -178,12 +180,22 @@ def add_numbers(page, badges):
         draw.ellipse(box, fill=BADGE_COLOUR, outline=(255, 255, 255, 220),
                      width=max(1, round(scale * 1.5)))
         text = str(number)
-        font = ImageFont.truetype(str(FONT), round(size * (0.5 if len(text) < 3 else 0.4)))
+        font = _bold(round(size * (0.58 if len(text) < 3 else 0.46)))
         draw.text(((box[0] + box[2]) / 2, (box[1] + box[3]) / 2), text, font=font,
                   anchor="mm", fill="white")
     marked = page.convert("RGBA")
     marked.alpha_composite(layer)
     return marked.convert("RGB")
+
+
+def _bold(size):
+    """Rubik in bold (the font file holds all its weights)."""
+    font = ImageFont.truetype(str(FONT), size)
+    try:
+        font.set_variation_by_name("Bold")
+    except (OSError, ValueError):
+        pass   # an older Pillow: regular weight
+    return font
 
 
 def watermark(page):

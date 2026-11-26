@@ -251,7 +251,7 @@ class OwnerApprovals:
         _, _, total = conversation.payment_amounts()
         self.send(self.owner, {"text": t["owner_payment"].format(
             order=_ltr(short(order_id)), total=info.get("price") or total,
-            phone=_ltr(local_number(phone)), address=info.get("address") or "?"),
+            phone=_ltr(local_number(phone)), address=conversation.shipping_text(info.get("ship"))),
             "buttons": [{"id": f"owner_paid:{order_id}", "title": t["button_owner_paid"]}]})
         log.info("Order %s: asked the owner to collect the payment", short(order_id))
 

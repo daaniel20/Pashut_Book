@@ -310,74 +310,117 @@ class CoverTest(unittest.TestCase):
 
 @unittest.skipIf(Image is None, "Pillow is not installed")
 class ReplaceTest(unittest.TestCase):
-    """Task 3.2: the customer replaces or removes a photo by its number."""
+    """Task 3.2: the customer replaces or removes a photo by its number. Only
+    that photo's spot or page may change (owner's phone test, Nov 26, 2026:
+    planning the album again shuffled every page)."""
 
     def setUp(self):
         self.photos = fake_photos(50)
         self.old = layout.make_album(self.photos, "classic")
-        inside = placed(self.old)
-        self.gone = inside[len(inside) // 2]       # the photo being replaced
-        self.new = SimpleNamespace(name="051", width=3000, height=4000, grade="ok")
+        self.before = self.pages(self.old)
 
-    def plan(self, photos, title=None):
-        return layout.make_album(photos, "classic", title)
+    @staticmethod
+    def pages(album):
+        return [[(s.photo, s.x, s.y, s.width, s.height) for s in page.spots]
+                for page in album.pages]
+
+    def change(self, photos, replaced=(), removed=(), title=None, design="classic"):
+        # The fresh plan is made from the photos in ANOTHER order, like a photo
+        # that now has a date, or a different duplicate choice: it must not matter.
+        fresh = layout.make_album(list(reversed(photos)), design, title)
+        return layout.change_photos(self.old, fresh, photos, dict(replaced), set(removed),
+                                    title)
+
+    def spot_of(self, condition):
+        return next((i, s) for i, page in enumerate(self.old.pages)
+                    if page.template != "full" for s in page.spots if condition(s))
 
     def test_a_replaced_photo_takes_the_same_spot(self):
-        photos = [self.new if p.name == self.gone else p for p in self.photos]
-        page_before = next(i for i, page in enumerate(self.old.pages)
-                           if self.gone in [s.photo for s in page.spots])
-        others = [s.photo for page in self.old.pages for s in page.spots if s.photo != self.gone]
-        album = layout.keep_places(self.old, self.plan(photos), {self.gone: "051"},
-                                   photos + [self.new])
+        index, spot = self.spot_of(lambda s: s.width > s.height * 1.2)
+        gone = spot.photo
+        new = SimpleNamespace(name="051", width=4000, height=3000, grade="ok")
+        photos = [new if p.name == gone else p for p in self.photos]
+        album = self.change(photos, {gone: "051"})
         self.assertIs(album, self.old)
-        self.assertIn("051", [s.photo for s in album.pages[page_before].spots])
-        self.assertNotIn(self.gone, placed(album))
-        # Every other photo stays exactly where it was.
-        self.assertEqual([s.photo for page in album.pages for s in page.spots
-                          if s.photo != "051"], others)
-        for page in album.pages:
-            for spot in page.spots:
-                self.assertLessEqual(spot.x + spot.width, designs.PAGE_WIDTH + 0.01)
+        after = self.pages(album)
+        for i, (a, b) in enumerate(zip(self.before, after)):
+            if i != index:
+                self.assertEqual(a, b)                  # every other page is untouched
+        self.assertEqual([p for p, *_ in after[index]],
+                         ["051" if p == gone else p for p, *_ in self.before[index]])
+        self.assertNotIn(gone, placed(album))
 
     def test_a_photo_of_another_shape_lays_out_only_its_page_again(self):
-        # A wide phone photo (16:9) instead of a photo in an upright spot: cut
-        # to that spot it would lose too much, so its page is laid out again.
-        index, target = next((i, s) for i, page in enumerate(self.old.pages)
-                             if page.template != "full" for s in page.spots
-                             if s.height > s.width * 1.2)
+        index, target = self.spot_of(lambda s: s.height > s.width * 1.2)
         gone = target.photo
         wide = SimpleNamespace(name="051", width=4032, height=2268, grade="ok")
         photos = [wide if p.name == gone else p for p in self.photos]
-        before = [[(s.photo, s.x, s.y) for s in page.spots] for page in self.old.pages]
-        album = layout.keep_places(self.old, self.plan(photos), {gone: "051"},
-                                   photos + [wide])
-        after = [[(s.photo, s.x, s.y) for s in page.spots] for page in album.pages]
-        for i, (a, b) in enumerate(zip(before, after)):
+        album = self.change(photos, {gone: "051"})
+        after = self.pages(album)
+        for i, (a, b) in enumerate(zip(self.before, after)):
             if i != index:
-                self.assertEqual(a, b)          # every other page is untouched
+                self.assertEqual(a, b)
         spot = next(s for s in album.pages[index].spots if s.photo == "051")
-        # In the page's new layout the photo keeps its wide shape and isn't small.
-        self.assertGreater(spot.width / spot.height, 1.5)
-        self.assertGreater(spot.width, target.width)
+        self.assertGreater(spot.width / spot.height, 1.5)   # keeps its wide shape
+        self.assertGreater(spot.width, target.width)         # and isn't small
 
-    def test_other_changes_plan_the_album_again(self):
-        photos = [self.new if p.name == self.gone else p for p in self.photos][:-1]
-        new = self.plan(photos)
-        self.assertIs(layout.keep_places(self.old, new, {self.gone: "051"}, photos), new)
-        photos = [self.new if p.name == self.gone else p for p in self.photos]
-        new = self.plan(photos, title="סבתא")
-        self.assertIs(layout.keep_places(self.old, new, {self.gone: "051"}, photos), new)
-        self.assertIs(layout.keep_places(None, new, {self.gone: "051"}, photos), new)
+    def test_the_new_photo_is_used_even_if_it_looks_like_another(self):
+        index, spot = self.spot_of(lambda s: True)
+        gone = spot.photo
+        new = SimpleNamespace(name="051", width=3000, height=3000, grade="skip",
+                              problems=["similar"])
+        photos = [new if p.name == gone else p for p in self.photos]
+        album = self.change(photos, {gone: "051"})
+        self.assertIn("051", placed(album))
+
+    def test_removing_a_photo_changes_only_its_page(self):
+        index, spot = self.spot_of(lambda s: True)
+        page = self.old.pages[index]
+        self.assertGreater(len(page.spots), 1)
+        gone = spot.photo
+        photos = [p for p in self.photos if p.name != gone]
+        album = self.change(photos, removed={gone})
+        after = self.pages(album)
+        self.assertEqual(len(after), len(self.before))
+        for i, (a, b) in enumerate(zip(self.before, after)):
+            if i != index:
+                self.assertEqual(a, b)
+        self.assertEqual(sorted(p for p, *_ in after[index]),
+                         sorted(p for p, *_ in self.before[index] if p != gone))
+
+    def test_removing_the_only_photo_of_a_page_moves_the_next_pages_up(self):
+        index = next(i for i, page in enumerate(self.old.pages) if len(page.spots) == 1)
+        gone = self.old.pages[index].spots[0].photo
+        photos = [p for p in self.photos if p.name != gone]
+        album = self.change(photos, removed={gone})
+        after = self.pages(album)
+        content = [p for p in self.before if p]
+        self.assertEqual([p for p in after if p], content[:index] + content[index + 1:])
+        self.assertEqual(len(after) % designs.PAGE_MULTIPLE, 0)
+
+    def test_a_new_title_only_redraws_the_cover(self):
+        album = self.change(self.photos, title="סבתא ציפי")
+        self.assertEqual(album.title, "סבתא ציפי")
+        self.assertEqual(self.pages(album), self.before)
+
+    def test_added_photos_or_another_design_plan_the_album_again(self):
+        more = self.photos + [SimpleNamespace(name="051", width=3000, height=4000, grade="ok")]
+        fresh = layout.make_album(more, "classic")
+        self.assertIs(layout.change_photos(self.old, fresh, more, {}, set(), None), fresh)
+        fresh = layout.make_album(self.photos, "colorful")
+        self.assertIs(layout.change_photos(self.old, fresh, self.photos, {}, set(), None), fresh)
+        self.assertIs(layout.change_photos(None, fresh, self.photos, {}, set(), None), fresh)
 
     def test_the_order_notes_decide_the_photos(self):
         if Image is None:
             self.skipTest("Pillow is not installed")
         photos = [(f"photo {n:03d}", b"") for n in range(1, 8)]
         order = {"notes": ["previews_sent", "replaced:3:7", "removed:5"]}
-        kept, replaced = build_album.changed_photos(order, photos)
+        kept, replaced, removed = build_album.changed_photos(order, photos)
         self.assertEqual([name for name, _ in kept],
                          ["photo 001", "photo 002", "photo 007", "photo 004", "photo 006"])
         self.assertEqual(replaced, {"photo 003": "photo 007"})
+        self.assertEqual(removed, {"photo 005"})
         self.assertEqual(build_album.photo_numbers(kept)["photo 007"], 7)
         self.assertEqual(build_album.photo_numbers([("IMG_9.jpg", b"")]), {"IMG_9.jpg": 1})
 

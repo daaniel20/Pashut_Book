@@ -71,8 +71,15 @@ The steps, in order:
   The changes are notes: "removed:N", "replaced:N:M" (photo M instead of N);
   album/build_album.py reads them.
   After the owner approves (task 3.2):
-  address       -> waiting for the shipping address (one typed message)
-  address_check -> "we'll send it to: …, correct?" [correct] [fix]
+  ship_name, ship_street, ship_city, ship_phone -> the shipping details, one
+                   question each (owner's phone test, Nov 26, 2026: one message
+                   for everything let mistakes through, and separate fields are
+                   better data). After each answer, the next question shows what
+                   was saved with a [✏️ fix it] button (note "ship_back:<step>":
+                   after fixing, back to where they were). The phone step has
+                   [📱 this number] (their WhatsApp number, state["wa_number"]
+                   from orders.py). Kept in state["ship"] (Supabase ship_* columns).
+  address_check -> the summary: [correct] [fix] (a list: which detail)
   payment       -> waiting for the payment (state["ask_payment"] tells orders.py
                    to ask the owner to send a Bit request by hand)
   paid          -> the owner tapped "payment received": the album goes to print.
@@ -131,7 +138,8 @@ MAX_CHANGES = 5
 # this many a day per customer (CLAUDE.md rule 12: avoid sending customers to a human).
 MAX_OWNER_MESSAGES = 3
 # The steps after the owner approved the album (task 3.2): it's finished.
-AFTER_APPROVAL = ("address", "address_check", "payment", "paid")
+SHIP_FIELDS = ("name", "street", "city", "phone")
+AFTER_APPROVAL = tuple("ship_" + f for f in SHIP_FIELDS) + ("address_check", "payment", "paid")
 # Steps of an album that is already finished (starting over keeps it).
 FINISHED_STEPS = ("done",) + AFTER_APPROVAL
 # The buttons that change the album (from the "change something" list).
@@ -139,8 +147,8 @@ EDIT_BUTTONS = ("edit_menu", "edit_title", "edit_design", "edit_cover", "add_pho
                 "edit_photo")
 # Help (task 3.2): the customer's question to the owner is cut at this length.
 HELP_MAX_LETTERS = 500
-# The shortest and longest shipping address we accept (letters).
-MIN_ADDRESS, MAX_ADDRESS = 10, 300
+# The longest shipping detail we keep (letters).
+MAX_SHIP_LETTERS = 100
 # Unicode kinds of characters the album can't print: emojis and other symbols
 # (So, Sk), and invisible joiners (Cs, Co). ₪ (Sc) and + (Sm) stay.
 _NOT_PRINTABLE = {"So", "Sk", "Cs", "Co"}
@@ -475,6 +483,12 @@ def _photo_change(state, kind, value, words, t):
         return [_photo_action_buttons(t, number)]
     if step == "photo_action":
         if _tapped(kind, value, words, "photo_remove", t["button_photo_remove"]):
+            removable = state.get("album_removable")
+            if removable is not None and int(number) not in removable:
+                # Alone on its page, and the album is at its shortest: replace only.
+                return [{"text": t["photo_cant_remove"].format(number=number), "buttons": [
+                    {"id": "photo_replace", "title": t["button_photo_replace"]},
+                    _no_change_button(t)]}]
             state["notes"].append(f"removed:{number}")
             _set_note(state, "photo_pick", None)
             return [_text(t["photo_removed"].format(number=number))] + _finish(state, t)
@@ -520,9 +534,9 @@ def _keep_photo_button(t, text):
 # ---------- after the owner approved: address and payment (task 3.2) ----------
 
 def owner_approved(state):
-    """The owner approved the album (called by orders.py): ask for the address.
-    The customer's message is owner_approved_customer in the texts."""
-    state["step"] = "address"
+    """The owner approved the album (called by orders.py): ask for the shipping
+    details, the name first. The customer's message is owner_approved_customer."""
+    state["step"] = "ship_name"
 
 
 def owner_paid(state):
@@ -546,32 +560,8 @@ def _after_approval(state, kind, value, words, t):
             (kind == "text" and words == _clean(t["button_edit"])):
         # The album is approved: it can't be changed any more (only "עזרה").
         return [_text(t["album_locked"])] + _step_prompt(state, t)
-    if step == "address":
-        if kind != "text" or not words:
-            return [_text(t["ask_address"])]
-        address = "\n".join(" ".join(line.split()) for line in value.strip().splitlines()
-                             if line.strip())
-        if len(address) < MIN_ADDRESS:
-            return [_text(t["address_too_short"])]
-        state["address"] = address[:MAX_ADDRESS]
-        state["step"] = "address_check"
-        return [_address_check(t, state)]
-    if step == "address_check":
-        if _tapped(kind, value, words, "address_ok", t["button_address_ok"]):
-            state["step"] = "payment"
-            state["notes"].append("payment_wait")
-            state["ask_payment"] = True   # orders.py asks the owner to send a Bit request
-            price, shipping, total = payment_amounts()
-            state["price"] = total
-            return [_text(t["payment"].format(price=price, shipping=shipping, total=total))]
-        if _tapped(kind, value, words, "address_fix", t["button_address_fix"]):
-            state["step"] = "address"
-            return [_text(t["ask_address"])]
-        if kind == "text" and words:
-            # They typed the address again instead of tapping: use the new one.
-            state["step"] = "address"
-            return _after_approval(state, kind, value, words, t)
-        return [_address_check(t, state)]
+    if step.startswith("ship_") or step == "address_check":
+        return _shipping(state, kind, value, words, t)
     if kind == "text" and words:
         # Waiting for the payment, or already paid: typed text goes to the owner
         # (at most MAX_OWNER_MESSAGES a day).
@@ -581,11 +571,121 @@ def _after_approval(state, kind, value, words, t):
     return _once(state, "paid_told", [_text(t["after_paid"])])
 
 
+# ---------- the shipping details, one question each (task 3.2) ----------
+
+def _shipping(state, kind, value, words, t):
+    step = state["step"]
+    ship = state.setdefault("ship", {})
+    for field in SHIP_FIELDS:
+        if _tapped(kind, value, words, "fix_" + field, t["button_fix_" + field]) or \
+                _tapped(kind, value, words, "fix_" + field, t["fix_row_" + field]):
+            return _fix_ship(state, field, t)
+    if step == "address_check":
+        if _tapped(kind, value, words, "address_ok", t["button_address_ok"]):
+            state["step"] = "payment"
+            state["notes"].append("payment_wait")
+            state["ask_payment"] = True   # orders.py asks the owner to send a Bit request
+            price, shipping, total = payment_amounts()
+            state["price"] = total
+            return [_text(t["payment"].format(price=price, shipping=shipping, total=total))]
+        if _tapped(kind, value, words, "address_fix", t["button_address_fix"]):
+            return [_fix_list(t)]
+        return [_address_check(t, state)]
+    field = step[len("ship_"):]
+    if field == "phone" and _tapped(kind, value, words, "ship_phone_this",
+                                    t["button_ship_phone_this"]):
+        answer = local_phone(state.get("wa_number"))
+    elif kind == "text" and words:
+        answer = _ship_value(field, value)
+    else:
+        return [_ship_question(state, field, t)]
+    if not answer:
+        return [_ship_question(state, field, t, error=True)]
+    ship[field] = answer
+    back = _note(state, "ship_back")
+    _set_note(state, "ship_back", None)
+    if back:
+        next_step = back
+    else:
+        later = [f for f in SHIP_FIELDS[SHIP_FIELDS.index(field) + 1:]]
+        next_step = "ship_" + later[0] if later else "address_check"
+    state["step"] = next_step
+    saved = t["ship_saved_" + field].format(value=answer)
+    if next_step == "address_check":
+        return [_address_check(t, state)]
+    return [_ship_question(state, next_step[len("ship_"):], t, saved=(field, saved))]
+
+
+def _fix_ship(state, field, t):
+    """ "✏️ fix the name" (or another detail): ask it again, then go back."""
+    if _used(state, "ship_fix") >= 2 * MAX_CHANGES:
+        text = t["change_limit"].format(what=t["limit_what_ship_fix"], max=2 * MAX_CHANGES)
+        return [_text(text)] + _step_prompt(state, t)
+    _use(state, "ship_fix")
+    if _note(state, "ship_back") is None and state["step"] != "ship_" + field:
+        _set_note(state, "ship_back", state["step"])
+    state["step"] = "ship_" + field
+    return [_ship_question(state, field, t)]
+
+
+def _ship_question(state, field, t, saved=None, error=False):
+    """The question for one shipping detail. saved = (field, "✅ שם: …"): the
+    detail just saved, shown above with a button to fix it."""
+    text = t["ship_bad_" + field] if error else t["ask_ship_" + field]
+    if saved:
+        text = saved[1] + "\n\n" + text
+    buttons = []
+    if field == "phone" and state.get("wa_number"):
+        buttons.append({"id": "ship_phone_this", "title": t["button_ship_phone_this"]})
+    if saved:
+        buttons.append({"id": "fix_" + saved[0], "title": t["button_fix_" + saved[0]]})
+    return {"text": text, "buttons": buttons} if buttons else {"text": text}
+
+
+def _ship_value(field, value):
+    """The detail as typed, tidied; None if it can't be right."""
+    if field == "phone":
+        return local_phone(value)
+    text = printable(value)[:MAX_SHIP_LETTERS]
+    letters = sum(c.isalpha() for c in text)
+    digits = any(c.isdigit() for c in text)
+    if field == "name":
+        return text if letters >= 2 else None
+    if field == "street":
+        return text if letters >= 2 and digits else None
+    return text if letters >= 2 and not digits else None   # city: letters only
+
+
+def local_phone(value):
+    """An Israeli mobile number as "050-123-4567", from "0501234567",
+    "+972 50-123-4567" or WhatsApp's "972501234567". None if it isn't one."""
+    digits = "".join(c for c in str(value or "") if c.isdigit())
+    if digits.startswith("972"):
+        digits = "0" + digits[3:]
+    if len(digits) != 10 or not digits.startswith("05"):
+        return None
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+
+def shipping_text(ship):
+    """The shipping details in a few lines (for the summary and the owner)."""
+    ship = ship or {}
+    return "\n".join([f"👤 {ship.get('name', '?')}",
+                      f"🏠 {ship.get('street', '?')}, {ship.get('city', '?')}",
+                      f"📱 {ship.get('phone', '?')}"])
+
+
 def _address_check(t, state):
-    return {"text": t["address_check"].format(address=state["address"]), "buttons": [
-        {"id": "address_ok", "title": t["button_address_ok"]},
-        {"id": "address_fix", "title": t["button_address_fix"]},
-    ]}
+    return {"text": t["address_check"].format(details=shipping_text(state.get("ship"))),
+            "buttons": [{"id": "address_ok", "title": t["button_address_ok"]},
+                        {"id": "address_fix", "title": t["button_address_fix"]}]}
+
+
+def _fix_list(t):
+    """Which detail to fix (a list: one button that opens the 4 details)."""
+    return {"text": t["choose_ship_fix"], "list": {
+        "button": t["button_address_fix"], "title": t["choose_ship_fix_title"],
+        "rows": [{"id": "fix_" + f, "title": t["fix_row_" + f]} for f in SHIP_FIELDS]}}
 
 
 def _loved(state, t):
@@ -748,8 +848,8 @@ def _step_prompt(state, t):
         return [_photo_action_buttons(t, _note(state, "photo_pick"))]
     if step == "photo_replace":
         return [_keep_photo_button(t, t["ask_replacement"].format(number=_note(state, "photo_pick")))]
-    if step == "address":
-        return [_text(t["ask_address"])]
+    if step.startswith("ship_"):
+        return [_ship_question(state, step[len("ship_"):], t)]
     if step == "address_check":
         return [_address_check(t, state)]
     if step == "payment":
