@@ -14,6 +14,9 @@ and the payment (a Bit request the owner sends by hand).
 Task 3.3: every step of every order is recorded in Supabase, numbers only
 (history.py, table "order_events").
 Task 3.4: old photos and album files are deleted by themselves (cleanup.py).
+Task 3.3b: behaviour data (behaviour.py): where customers came from, every
+incoming message, delivered / read for every bot message, album page visits,
+the bot's version, a test mark and an anonymous customer key on every row.
 
 How it works, in short:
 1. A customer writes to our WhatsApp number.
@@ -42,6 +45,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import behaviour
 import conversation
 import preview_links
 from album_job import AlbumJobs, album_numbers, album_removable
@@ -63,6 +67,8 @@ VIDEO_PAUSE_SECONDS = 2
 WEBHOOK_PATH = "/webhook"
 # Webhook notices are small. Refuse anything bigger (protects the Mac).
 MAX_BODY_BYTES = 1_000_000
+# The album page's small "opened / scrolled" notes (task 3.3b) are tiny.
+MAX_PAGE_NOTE_BYTES = 500
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,6 +106,8 @@ whatsapp = None
 db = None
 orders = None
 owner = None
+outbox = behaviour.Outbox()        # sent messages, for delivered / read (3.3b)
+page_notes = behaviour.PageNotes()  # the album page's notes, limited per link
 photo_savers = ThreadPoolExecutor(max_workers=PHOTO_WORKERS)
 _last_problem_notice = {}
 
@@ -147,13 +155,45 @@ def is_new_message(message_id):
 def send(to, message):
     """Send one message. Returns True if Meta accepted it."""
     try:
-        whatsapp.send(to, message)
+        message_id = whatsapp.send(to, message)
         log.info("%s sent to %s", "Image" if message.get("image_file") else "Reply",
                  mask_phone(to))
-        return True
     except (WhatsAppError, OSError) as error:
         log.error("Could not send a message: %s", error)
         return False
+    record_sent(to, message, message_id)
+    return True
+
+
+def record_sent(to, message, message_id):
+    """Task 3.3b: record the message's name (e.g. "photos_count") in the
+    customer's order history, and remember it for its delivered / read reports.
+    The owner's own messages (🔧, "owner_…") are not part of a customer's journey."""
+    try:
+        order_id = orders.order_of(to) if orders else None
+        name = behaviour.message_name(message, TEXTS)
+        if not order_id or name.startswith("owner_"):
+            return
+        outbox.add(message_id, to, order_id, name)
+        orders.record_for(to, order_id, "message_out", detail=name,
+                          info={"kind": behaviour.message_kind(message)})
+    except Exception:
+        log.exception("Could not record a sent message")
+
+
+def record_status(status):
+    """Task 3.3b: WhatsApp's report that a bot message was delivered or read."""
+    state = status.get("status")
+    if state not in ("delivered", "read", "failed"):
+        return
+    sent = outbox.report(status.get("id"), state, status.get("timestamp"))
+    if not sent:
+        return
+    info = {"seconds": sent["seconds"]}
+    if state == "failed":
+        info["code"] = ((status.get("errors") or [{}])[0]).get("code")
+    orders.record_for(sent["phone"], sent["order_id"], "message_" + state,
+                      detail=sent["name"], info=info)
 
 
 def save_photo_safely(phone, order_id, number, media):
@@ -176,12 +216,17 @@ def handle_notice(data):
             for status in value.get("statuses", []):
                 if status.get("status") == "failed":
                     report_failed(status)
+                try:
+                    record_status(status)
+                except Exception:
+                    log.exception("Could not record a delivery report")
             for message in value.get("messages", []):
                 sender = message.get("from")
                 message_id = message.get("id")
                 if not sender or not message_id or not is_new_message(message_id):
                     continue
                 kind, value = conversation.read_message(message)
+                source = behaviour.read_source(message)   # an ad or one of our links (3.3b)
                 # We log only the message type, never texts or photos.
                 log.info("Got a %s message from %s", message.get("type"), mask_phone(sender))
                 if owner and owner.handles(sender, kind, value):
@@ -191,7 +236,8 @@ def handle_notice(data):
                 # one at a time update this customer's order, so the count is right.
                 with orders.lock_for(sender):
                     try:
-                        replies, photo = orders.answer(sender, kind, value, TEXTS)
+                        replies, photo = orders.answer(sender, kind, value, TEXTS,
+                                                       source=source)
                     except DatabaseError as error:
                         log.error("Supabase problem: %s", error)
                         replies, photo = problem_notice(sender), None
@@ -264,6 +310,28 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.respond(404, b"not found", "text/plain; charset=utf-8", private=True)
 
+    def album_note(self, code):
+        """Task 3.3b: the album page says it was opened, or how far it was
+        scrolled. Only small numbers and a random device code; limited per link."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        body = self.rfile.read(length) if 0 < length <= MAX_PAGE_NOTE_BYTES else b""
+        self.respond(204, b"", "text/plain; charset=utf-8", private=True)
+        if not body:
+            return
+        data = preview_links.find(code)
+        if not data or not data.get("order_id") or not orders or not page_notes.allowed(code):
+            return
+        try:
+            note = page_notes.read(json.loads(body), self.headers.get("User-Agent"))
+        except ValueError:
+            return
+        if note:
+            event, count, detail, info = note
+            orders.record(data["order_id"], event, count=count, detail=detail, info=info)
+
     def verify_webhook(self, query):
         """Meta's one-time check when we save the webhook address in its dashboard."""
         mode = query.get("hub.mode", [""])[0]
@@ -277,7 +345,11 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(403, b"forbidden", "text/plain; charset=utf-8")
 
     def do_POST(self):
-        if urlparse(self.path).path != WEBHOOK_PATH:
+        path = urlparse(self.path).path
+        if path.startswith("/album/") and path.endswith("/note"):
+            self.album_note(path[len("/album/"):-len("/note")])
+            return
+        if path != WEBHOOK_PATH:
             self.respond(404, b"not found", "text/plain; charset=utf-8")
             return
         try:
@@ -338,7 +410,16 @@ def main():
     db = Database(env["SUPABASE_URL"], env["SUPABASE_SECRET_KEY"])
     orders = Orders(db)
     orders.send = send
-    orders.history = History(db)   # the order history (task 3.3)
+    # The order history (task 3.3), with a test mark, the bot's version and an
+    # anonymous customer key on every row (task 3.3b).
+    secret = behaviour.key_secret(env)
+    if not secret:
+        log.warning("Could not add %s to .env: rows have no customer key",
+                    behaviour.KEY_SECRET_NAME)
+    version = behaviour.bot_version()
+    orders.history = History(db, key_secret=secret, test_phones=behaviour.test_phones(env),
+                             version=version)
+    log.info("Bot version %s", version)
     public_url = (env.get("PUBLIC_URL") or DEFAULT_PUBLIC_URL).rstrip("/")
 
     def make_link(result):
@@ -347,7 +428,8 @@ def main():
                                     design=result.get("design"),
                                     full_pages=result.get("full_pages"),
                                     photos_on_pages=result.get("photos_on_pages"),
-                                    left_out=result.get("left_out"))
+                                    left_out=result.get("left_out"),
+                                    order_id=result.get("order_id"))
         return f"{public_url}/album/{code}"
 
     orders.on_ready = AlbumJobs(orders, send, TEXTS, make_link=make_link).start

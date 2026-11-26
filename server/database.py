@@ -95,6 +95,10 @@ class Database:
                           + "&select=created_at,event,step,photos,count,detail,"
                           "seconds_from_start&order=created_at,id")
 
+    def funnel(self):
+        """The funnel view (task 3.3b): orders per stage, customers and tests."""
+        return self._call("GET", "/rest/v1/funnel?select=*")
+
     # ---------- photos ----------
 
     def add_photo(self, fields):

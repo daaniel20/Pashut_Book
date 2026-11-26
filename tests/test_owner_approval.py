@@ -103,7 +103,7 @@ class OwnerApprovalTest(unittest.TestCase):
                        "warnings": [f"page {n}: soft" for n in range(7)], "notes": []}
         self.love_it()
         request = self.to(OWNER)[0]
-        self.assertEqual(request["link"]["url"], "https://x/album/CODE")
+        self.assertEqual(request["link"]["url"], "https://x/album/CODE?o=1")   # the owner's visits are marked (3.3b)
         self.assertIn("22", request["text"])
         # One detail per line, in Hebrew (owner's test, task 1.2b).
         self.assertIn("\n📄 22 עמודים\n", request["text"])

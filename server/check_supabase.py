@@ -2,6 +2,7 @@
 
 Run from the project folder:  python3 server/check_supabase.py
 Add --history to also see the newest order's history (task 3.3), step by step.
+Add --funnel to see how many orders reached each stage (task 3.3b).
 It reads SUPABASE_URL and SUPABASE_SECRET_KEY from the .env file.
 It never prints the key, and shows only the last 3 digits of phone numbers.
 """
@@ -53,6 +54,26 @@ def main():
     print("\n(⏳ = some photos are still uploading, or failed. Check the log.)")
     if "--history" in sys.argv:
         show_history(db, orders[0]["id"])
+    if "--funnel" in sys.argv:
+        show_funnel(db)
+
+
+def show_funnel(db):
+    """How many orders reached each stage, customers and tests apart (task 3.3b)."""
+    try:
+        rows = db.funnel()
+    except DatabaseError as error:
+        sys.exit(f"❌ {error}\n   Did you run supabase/3.3b-behaviour-data.sql? "
+                 "See docs/setup/3.3b-behaviour-data.md")
+    for who in ("customers", "tests"):
+        mine = [row for row in rows if row["who"] == who]
+        if not mine:
+            continue
+        print(f"\nFunnel ({who}):")
+        for row in mine:
+            previous = row["percent_of_previous"]
+            print(f"  {row['stage_no']:>2}. {row['stage']:<17} {row['orders']:>4}"
+                  + (f"   ({previous}% of the stage before)" if previous is not None else ""))
 
 
 def show_history(db, order_id):

@@ -42,6 +42,10 @@ reload_after(), so the customer's remembered state is read again. A customer
 whose unpaid album was deleted ("expired") starts a new album at their next
 message, told why first (text "album_expired").
 
+Task 3.3b: every incoming message is recorded too ("message_in": its kind,
+the button, whether it changed anything, the text's length only), and where
+the customer came from ("source", from bot.py). behaviour.py has the details.
+
 The conversation itself (what to answer) is still in conversation.py.
 """
 
@@ -51,6 +55,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import behaviour
 import cleanup
 import conversation
 import history
@@ -85,6 +90,9 @@ MAX_NEW_ALBUMS_PER_DAY = 3
 # Wait a little before deleting a cancelled order's photos, so photos that are
 # still uploading get deleted too.
 DELETE_DELAY_SECONDS = 60
+# Task 3.3b: a source code (ad, link) also counts for an album the customer
+# starts within this long after it.
+SOURCE_CARRY_SECONDS = 24 * 3600
 
 
 def short(order_id):
@@ -118,19 +126,61 @@ class Orders:
         self.album_removable = None
         self.history = None   # history.History (task 3.3), set by bot.py
         self._seen = {}       # order_id -> (step, notes) as last recorded
+        self._sources = {}    # phone -> (code, details, when) of their last source (3.3b)
 
     def lock_for(self, phone):
         with self._guard:
             return self._locks.setdefault(phone, threading.Lock())
 
-    def answer(self, phone, kind, value, texts):
+    def answer(self, phone, kind, value, texts, source=None):
         """Answer one message. Call it while holding lock_for(phone).
 
         Returns (replies, photo) where photo is None, or (order_id, number) when
         this message is a photo that should be saved.
         Raises DatabaseError only if Supabase can't be reached to find or create
         the customer's order (then nothing has changed).
+        source: (code, details) of where the customer came from (task 3.3b).
+        The message itself is recorded in the order history ("message_in").
         """
+        state = self._load(phone)
+        before = _snapshot(state)
+        if source and source[0]:
+            self._sources[phone] = (source[0], source[1], time.monotonic())
+            self.record(state["order_id"], "source", state=state, detail=source[0],
+                        info=source[1])
+        replies, photo = self._answer(phone, kind, value, texts)
+        self._record_message(phone, before, kind, value, replies, photo, texts)
+        return replies, photo
+
+    def _record_message(self, phone, before, kind, value, replies, photo, texts):
+        """One "message_in" row: what the customer sent (never the text itself)
+        and whether it changed anything. Typing where a button was expected and
+        changing nothing is a sign of confusion."""
+        state = self._states.get(phone)
+        if not state:
+            return
+        changed = photo is not None or _snapshot(state) != before
+        wanted = behaviour.expected(before[1], before[2])
+        info = {"expected": wanted, "changed": changed,
+                "replies": [behaviour.message_name(r, texts) for r in replies][:5]}
+        if kind == "button":
+            info["button"] = behaviour.button_code(value)
+        elif kind == "text":
+            info["letters"] = len(value or "")
+        elif kind == "other":
+            info["type"] = str(value)[:20]
+        if state["order_id"] != before[0]:
+            info["new_order"] = True
+        info["confused"] = kind == "text" and wanted == "button" and not changed
+        self.record(state["order_id"], "message_in", state=state, step=before[1],
+                    detail=kind, info=info)
+
+    def order_of(self, phone):
+        """The customer's current order ID, if the bot has it in memory."""
+        state = self._states.get(phone)
+        return state["order_id"] if state else None
+
+    def _answer(self, phone, kind, value, texts):
         state = self._load(phone)
         expired = state.pop("expired_before", False)
         old_order, old_step = state["order_id"], state["step"]
@@ -535,7 +585,7 @@ class Orders:
         if state and state.get("order_id") == order_id:
             values.setdefault("step", state["step"])
             values.setdefault("photos", state["photos"])
-        self.record(order_id, event, **values)
+        self.record(order_id, event, phone=phone, **values)
 
     def _record_changes(self, state):
         """Record the order's new step and new notes since it was last saved."""
@@ -575,6 +625,8 @@ class Orders:
                 if ship:
                     self._states[phone]["ship"] = ship
                 self._seen[row["id"]] = (row["step"], list(self._states[phone]["notes"]))
+                if self.history:
+                    self.history.know(row["id"], phone)
                 if "done_waiting" in self._states[phone]["notes"]:
                     # The bot restarted while waiting for the last photos: don't wait again.
                     self._states[phone]["notes"].remove("done_waiting")
@@ -612,7 +664,12 @@ class Orders:
         order_id = self.db.create_order(phone, _fields(state))["id"]
         log.info("New order %s", short(order_id))
         self._seen[order_id] = (state["step"], list(state["notes"]))
-        self.record(order_id, "order_started", state=state)
+        self.record(order_id, "order_started", state=state, phone=phone)
+        source = self._sources.get(phone)
+        if source and time.monotonic() - source[2] < SOURCE_CARRY_SECONDS:
+            # They came from an ad or link and then started (another) album.
+            self.record(order_id, "source", state=state, detail=source[0],
+                        info=dict(source[1] or {}, carried=True))
         return order_id
 
     def _cancel(self, order_id):
@@ -634,6 +691,12 @@ class Orders:
             log.info("Deleted %s photos of cancelled order %s", count, short(order_id))
         except DatabaseError as error:
             log.error("Could not delete photos of order %s: %s", short(order_id), error)
+
+
+def _snapshot(state):
+    """What a message could change, to tell whether it changed anything."""
+    return (state["order_id"], state["step"], tuple(state["notes"]), state["photos"],
+            state["title"], state["design"], tuple(sorted((state.get("ship") or {}).items())))
 
 
 def _token(state):

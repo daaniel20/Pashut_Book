@@ -104,8 +104,14 @@ class WhatsApp:
         else:
             payload = {"type": "text", "text": {"body": message["text"]}}
         payload.update({"messaging_product": "whatsapp", "to": to})
-        self._call(f"{self.api}/{self.phone_number_id}/messages",
-                   json.dumps(payload).encode("utf-8"))
+        answer = self._call(f"{self.api}/{self.phone_number_id}/messages",
+                            json.dumps(payload).encode("utf-8"))
+        # WhatsApp's ID for this message: its "delivered" and "read" reports
+        # carry the same ID (task 3.3b).
+        try:
+            return json.loads(answer)["messages"][0]["id"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            return None
 
     def video_id(self, path):
         """The media ID of a video, uploaded to Meta once and reused. Meta keeps

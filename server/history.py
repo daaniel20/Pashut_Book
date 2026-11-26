@@ -13,6 +13,11 @@ either as a CSV from Supabase (docs/setup/3.3-order-history.md).
 Writing happens in the background, one row after another, so the customer
 never waits for it, and a Supabase problem never stops the bot: the row is
 tried a few times, then dropped with a line in bot.log.
+
+Task 3.3b: every row also gets the customer's anonymous key ("customer", the
+phone number scrambled, behaviour.py), a test mark ("test": the owner's and
+family phones) and the bot's version. The order's phone number is learned
+from record(..., phone=) or know(), or read from Supabase once.
 """
 
 import logging
@@ -21,6 +26,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import behaviour
 from database import DatabaseError
 
 log = logging.getLogger("bot")
@@ -32,17 +38,54 @@ RETRY_SECONDS = 5
 SKIP_NOTES = {"owner_token", "help_day", "photos_at", "editing", "owner_check"}
 
 
+# The columns added in task 3.3b (supabase/3.3b-behaviour-data.sql).
+NEW_COLUMNS = ("customer", "test", "version")
+
+
 class History:
-    def __init__(self, db, background=True):
+    def __init__(self, db, background=True, key_secret=None, test_phones=(), version=None):
         self.db = db
         self.background = background
+        self.key_secret = key_secret       # for the anonymous customer key (3.3b)
+        self.test_phones = set(test_phones)
+        self.version = version
+        self._who = {}       # order_id -> (customer key, test?)
+        self._who_lock = threading.Lock()
         self._queue = queue.Queue()
         self._warned = False
+        self._old_table = False   # the 3.3b columns aren't in Supabase yet
         if background:
             threading.Thread(target=self._worker, daemon=True).start()
 
+    def know(self, order_id, phone):
+        """Remember whose order this is (as a key and a test mark, never the number)."""
+        if not order_id or not phone:
+            return
+        who = (behaviour.customer_key(phone, self.key_secret),
+               behaviour.phone_number(phone) in self.test_phones)
+        with self._who_lock:
+            self._who[order_id] = who
+
+    def _whose(self, order_id):
+        with self._who_lock:
+            who = self._who.get(order_id)
+        if who is None:
+            # Not seen since the bot started: ask Supabase once (in the background).
+            try:
+                row = self.db.get_order(order_id)
+            except Exception:
+                row = None
+            if row and row.get("phone"):
+                self.know(order_id, row["phone"])
+                with self._who_lock:
+                    who = self._who.get(order_id)
+            else:
+                with self._who_lock:
+                    who = self._who.setdefault(order_id, (None, None))
+        return who
+
     def record(self, order_id, event, step=None, photos=None, count=None,
-               detail=None, info=None):
+               detail=None, info=None, phone=None):
         """Remember one moment of an order. Returns at once.
 
         event:  what happened, e.g. "step", "album_built", "photo_saved"
@@ -51,13 +94,17 @@ class History:
         count:  the event's main number (a photo number, pages, …)
         detail: a short code (e.g. the new step, "small"), never customer text
         info:   more numbers, e.g. {"pages": 24, "seconds": 41}
+        phone:  the customer's number, if known (only its scrambled key is kept)
         """
         if not order_id or not event:
             return
+        if phone:
+            self.know(order_id, phone)
         row = {"order_id": order_id, "event": event, "step": step, "photos": photos,
                "count": count, "detail": None if detail is None else str(detail)[:60],
                "info": info or {},
-               "created_at": datetime.now(timezone.utc).isoformat()}
+               "created_at": datetime.now(timezone.utc).isoformat(),
+               "version": self.version}
         if self.background:
             self._queue.put(row)
         else:
@@ -78,11 +125,25 @@ class History:
                 self._queue.task_done()
 
     def _write(self, row):
+        if "customer" not in row:
+            row["customer"], row["test"] = self._whose(row["order_id"])
         for attempt in range(1, TRIES + 1):
             try:
-                self.db.add_event(row)
+                if self._old_table:
+                    self.db.add_event({k: v for k, v in row.items() if k not in NEW_COLUMNS})
+                else:
+                    self.db.add_event(row)
                 return
             except DatabaseError as error:
+                if not self._old_table and "column" in str(error) and \
+                        any(name in str(error) for name in NEW_COLUMNS):
+                    # supabase/3.3b-behaviour-data.sql wasn't run yet: keep
+                    # recording without the new columns, and say so once.
+                    self._old_table = True
+                    log.warning("Order history: the 3.3b columns are missing (%s). Run "
+                                "supabase/3.3b-behaviour-data.sql (docs/setup/"
+                                "3.3b-behaviour-data.md). Saving without them for now.", error)
+                    continue
                 if "order_events" in str(error):
                     # Supabase refused it, most likely because the table doesn't
                     # exist yet. Trying again won't help; say so once.

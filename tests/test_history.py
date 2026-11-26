@@ -236,7 +236,7 @@ class JourneyTest(unittest.TestCase):
         again = orders.Orders(self.db)
         again.history = self.orders.history
         again.answer(CUSTOMER, "photo", photo(1), TEXTS)
-        new = self.events()[count:]
+        new = [r for r in self.events()[count:] if r["event"] != "message_in"]
         self.assertEqual([(r["event"], r["detail"]) for r in new],
                          [("step", "cover_check"), ("cover_check", None)][:len(new)])
         self.assertEqual(new[0]["info"], {"from": "cover_photo"})
