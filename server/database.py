@@ -63,6 +63,22 @@ class Database:
                           + "&created_at=gte." + quote(since))
         return len(rows or [])
 
+    def orders_to_clean(self, idle_before, paid_before):
+        """Task 3.4: orders whose photos may need deleting (cleanup.py decides):
+        cancelled ones, ones untouched since idle_before, ones paid before
+        paid_before (times as ISO text). Orders already cleaned are skipped."""
+        where = quote(f"(status.eq.cancelled,updated_at.lt.{idle_before},"
+                      f"paid_at.lt.{paid_before})", safe="(),.:")
+        return self._call("GET", "/rest/v1/orders?select=id,phone,status,step,notes,"
+                          "photo_count,updated_at,paid_at&order=created_at"
+                          "&notes=not.cs." + quote(json.dumps(["photos_deleted"]))
+                          + "&or=" + where)
+
+    def photos_size(self):
+        """(how many photos are saved, their total size in bytes), for cleanup.py."""
+        rows = self._call("GET", "/rest/v1/photos?select=size_bytes") or []
+        return len(rows), sum(row.get("size_bytes") or 0 for row in rows)
+
     def recent_orders(self, limit=5):
         return self._call("GET", f"/rest/v1/orders?order=created_at.desc&limit={limit}"
                           "&select=id,phone,status,step,photo_count,created_at,photos(count)")
@@ -128,6 +144,23 @@ class Database:
                        {"bucketId": BUCKET, "sourceKey": old, "destinationKey": new})
             self._call("PATCH", "/rest/v1/photos?id=eq." + quote(kept[0]["id"]),
                        {"number": 1, "storage_path": new})
+        return len(paths)
+
+    def delete_all_photos(self, order_id):
+        """Task 3.4: delete every photo file of an order (also files that lost
+        their row when saving failed half-way) and all its photo rows.
+        Returns how many files were deleted."""
+        rows = self._call("GET", "/rest/v1/photos?select=storage_path&order_id=eq."
+                          + quote(order_id)) or []
+        listed = self._call("POST", f"/storage/v1/object/list/{BUCKET}",
+                            {"prefix": order_id, "limit": 1000}) or []
+        paths = {row["storage_path"] for row in rows}
+        paths |= {f"{order_id}/{item['name']}" for item in listed if item.get("id")}
+        paths = sorted(paths)
+        for start in range(0, len(paths), 100):
+            self._call("DELETE", f"/storage/v1/object/{BUCKET}",
+                       {"prefixes": paths[start:start + 100]})
+        self._call("DELETE", "/rest/v1/photos?order_id=eq." + quote(order_id))
         return len(paths)
 
     def bucket(self):
