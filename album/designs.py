@@ -34,34 +34,60 @@ RIGHT_TO_LEFT = True
 
 
 # ---------- the 2 designs ----------
+# Task S.3 (Nov 27, 2026): the 2 designs made clearly different, so a customer
+# sees the difference at a glance (the first versions were too similar):
+#   classic  = calm and elegant: white pages, the photos are the design (from
+#              the owner's example, a "one photo, edge to edge" book), many
+#              edge-to-edge pages, thin even gaps, a serif title.
+#   colorful = bright and playful: pastel pages, photos like prints in a white
+#              frame with a soft shadow, each a little tilted, a round bold title
+#              on a white label.
+#
 # margin: empty space around the photos (mm). gap: space between photos (mm).
 # corner: rounded photo corners (mm, 0 = square). border: white frame (mm).
 # backgrounds: page colours, used in turn. full_page: allow photos that cover
-# a whole page edge to edge (only with "ok" photos).
+# a whole page edge to edge (only with "ok" photos). edge_to_edge: about this
+# part of the pages is one photo edge to edge (EDGE_TO_EDGE_SHARE if missing).
+# tilt: framed photos are turned up to this many degrees, left or right.
+# shadow: a soft shadow under framed photos.
+# title_style: "fade" = white letters on the photo, a dark fade behind them
+# when the photo is bright or busy; "label" = dark letters on a white label.
+# title_align: "center" or "start" (the right side, for Hebrew).
 DESIGNS = {
     "classic": {
         "backgrounds": ["#FFFFFF"],
-        "margin": 9,
-        "gap": 4,
+        "margin": 8,
+        "gap": 3,
         "corner": 0,
         "border": 0,
         "full_page": True,
+        "edge_to_edge": 0.4,
+        "tilt": 0,
+        "shadow": False,
         "font": FONTS_DIR / "FrankRuhlLibre.ttf",
         "font_weight": "Medium",
         "title_color": "#2B2B2B",
+        "title_style": "fade",
+        "title_align": "start",
         "cover_background": "#FFFFFF",
     },
     "colorful": {
-        "backgrounds": ["#FDE2E4", "#E2F0CB", "#CDE7F0", "#FFF1C1", "#E8DFF5"],
-        "margin": 10,
-        "gap": 5,
-        "corner": 4,
-        "border": 2,
+        # Pastel, not deep: paper prints darker than a screen (research notes).
+        "backgrounds": ["#F8D9D6", "#D3EBD9", "#D2E3F6", "#FBE9B7", "#E5DAF5"],
+        "margin": 11,
+        "gap": 7,
+        "corner": 0,
+        "border": 3.5,
         "full_page": True,
+        "edge_to_edge": 0.12,
+        "tilt": 2.2,
+        "shadow": True,
         "font": FONTS_DIR / "Rubik.ttf",
-        "font_weight": "SemiBold",
+        "font_weight": "Bold",
         "title_color": "#3A3A3A",
-        "cover_background": "#FFF1C1",
+        "title_style": "label",
+        "title_align": "center",
+        "cover_background": "#FBE9B7",
     },
 }
 

@@ -222,7 +222,8 @@ def pick_full_pages(photos, style, cover_photo=None):
     candidates: sharp, fill the page without cutting a face, with people."""
     if not style["full_page"]:
         return set()
-    wanted = round(designs.EDGE_TO_EDGE_SHARE * page_count(len(photos)))
+    share = style.get("edge_to_edge", designs.EDGE_TO_EDGE_SHARE)
+    wanted = round(share * page_count(len(photos)))
     page_aspect = designs.PAGE_WIDTH / designs.PAGE_HEIGHT
 
     def badness(photo):

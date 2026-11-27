@@ -104,6 +104,10 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
     w, h = round(spot.width * ppm), round(spot.height * ppm)
     border = round(style["border"] * ppm) if framed else 0
     corner = round(style["corner"] * ppm) if framed else 0
+    angle = _tilt(spot.photo, style) if framed else 0
+    if framed and (angle or style.get("shadow")):
+        _draw_print(image, spot, photos, style, ppm, angle)
+        return
     draw = ImageDraw.Draw(image)
     if border:
         # A white frame around the photo, the photo inside it.
@@ -116,6 +120,57 @@ def _draw_photo(image, spot, photos, style, ppm, framed):
         mask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=corner, fill=255)
     image.paste(photo, (x, y), mask)
+
+
+# The colorful design (task S.3): photos look like prints laid on the page,
+# in a white frame, a little tilted, with a soft shadow under them.
+SHADOW_DROP = 0.9       # mm: the shadow falls this far down
+SHADOW_SOFT = 1.6       # mm: how blurry its edge is
+SHADOW_DARK = 95        # 0-255: how dark it is under the photo
+
+
+def _tilt(name, style):
+    """The angle of this photo, always the same for the same photo (so a
+    rebuild looks the same): between a third of the design's tilt and all of
+    it, to the left or to the right."""
+    most = style.get("tilt", 0)
+    if not most or not name:
+        return 0
+    number = sum((i + 1) * ord(c) for i, c in enumerate(str(name)))
+    size = most * (0.35 + 0.65 * ((number * 37) % 100) / 100)
+    return size if number % 2 else -size
+
+
+def _draw_print(image, spot, photos, style, ppm, angle):
+    """A framed photo turned by angle degrees, made a little smaller so the
+    turned photo still fits its spot (it never covers its neighbours), with
+    a soft shadow under it."""
+    import math
+    w, h = spot.width * ppm, spot.height * ppm
+    turn = math.radians(abs(angle))
+    # The turned frame must fit in the spot: shrink both sides by the same part.
+    shrink = min(w / (w * math.cos(turn) + h * math.sin(turn)),
+                 h / (w * math.sin(turn) + h * math.cos(turn)))
+    fw, fh = max(2, round(w * shrink)), max(2, round(h * shrink))
+    border = round(style["border"] * ppm)
+    frame = Image.new("RGB", (fw, fh), "white")
+    inner_w, inner_h = max(1, fw - 2 * border), max(1, fh - 2 * border)
+    frame.paste(photos.open(spot.photo, inner_w, inner_h, spot.crop), (border, border))
+    # Turn with a see-through edge (drawn a little bigger, then shrunk, for a smooth edge).
+    rgba = frame.convert("RGBA")
+    turned = rgba.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
+    cx, cy = (spot.x + spot.width / 2) * ppm, (spot.y + spot.height / 2) * ppm
+    left, top = round(cx - turned.width / 2), round(cy - turned.height / 2)
+    if style.get("shadow"):
+        soft = max(1, round(SHADOW_SOFT * ppm))
+        pad = 3 * soft
+        alpha = turned.getchannel("A").point(lambda v: v * SHADOW_DARK // 255)
+        shadow = Image.new("L", (turned.width + 2 * pad, turned.height + 2 * pad), 0)
+        shadow.paste(alpha, (pad, pad))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(soft))
+        drop = round(SHADOW_DROP * ppm)
+        image.paste((40, 30, 30), (left - pad, top - pad + drop), shadow)
+    image.paste(turned, (left, top), turned)
 
 
 # The cover title over the photo: no band (owner's feedback: the band hid part
@@ -150,19 +205,30 @@ def _draw_title(image, album, style, ppm):
     title = printable(album.title)
     if not title:
         return
-    lines, font = _fit_text(title, style, box_w, box_h * height_used)
+    if on_photo and style.get("title_style") == "label":
+        # Smaller letters: the white label around them takes room too.
+        lines, font = _fit_text(title, style, box_w * 0.7, box_h * height_used * 0.7)
+    else:
+        lines, font = _fit_text(title, style, box_w, box_h * height_used)
     line_h = font.size * 1.25
     places = []
     y = top + (box_h - line_h * len(lines)) / 2
+    start = style.get("title_align") == "start" and on_photo
     for line in lines:
         text = visual_order(line)
         width = ImageDraw.Draw(image).textlength(text, font=font)
-        places.append(((left + (box_w - width) / 2, y), text))
+        # "start" = the right side for Hebrew (the reading starts there).
+        x = right - width if start and designs.RIGHT_TO_LEFT else (
+            left if start else left + (box_w - width) / 2)
+        places.append(((x, y), text))
         y += line_h
     if not on_photo:
         draw = ImageDraw.Draw(image)
         for xy, text in places:
             draw.text(xy, text, font=font, fill=style["title_color"])
+        return
+    if style.get("title_style") == "label":
+        _label(image, places, font, style)
         return
     behind = ImageStat.Stat(image.crop((int(left), int(top), int(right), int(bottom))).convert("L"))
     if behind.mean[0] > FADE_BRIGHT or behind.stddev[0] > FADE_BUSY:
@@ -177,6 +243,25 @@ def _draw_title(image, album, style, ppm):
     draw = ImageDraw.Draw(image)
     for xy, text in places:
         draw.text(xy, text, font=font, fill=letters)
+
+
+def _label(image, places, font, style):
+    """The colorful design's title: dark letters on a white label with round
+    ends and a soft shadow, readable on any photo."""
+    draw = ImageDraw.Draw(image)
+    boxes = [draw.textbbox(xy, text, font=font) for xy, text in places]
+    pad_x, pad_y = font.size * 0.55, font.size * 0.32
+    box = (min(b[0] for b in boxes) - pad_x, min(b[1] for b in boxes) - pad_y,
+           max(b[2] for b in boxes) + pad_x, max(b[3] for b in boxes) + pad_y)
+    radius = min(font.size * 0.9, (box[3] - box[1]) / 2)
+    shadow = Image.new("L", image.size, 0)
+    drop = font.size * 0.06
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        (box[0], box[1] + drop, box[2], box[3] + drop), radius=radius, fill=90)
+    image.paste((0, 0, 0), (0, 0), shadow.filter(ImageFilter.GaussianBlur(font.size * 0.12)))
+    draw.rounded_rectangle(box, radius=radius, fill="white")
+    for xy, text in places:
+        draw.text(xy, text, font=font, fill=style["title_color"])
 
 
 def _fade(image, top, bottom, at_top):
